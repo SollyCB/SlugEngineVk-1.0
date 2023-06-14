@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <vulkan/vulkan.hpp>
 
 #include "Engine.hpp"
@@ -31,8 +32,10 @@ void Engine::init() {
   init_framebuffers();
   init_pipeline();
   init_command();
+  init_sync();
 }
 void Engine::kill() {
+  kill_sync();
   kill_command();
   kill_pipeline();
   kill_framebuffers();
@@ -47,28 +50,7 @@ void Engine::kill() {
 }
 
 void Engine::run() {
-  int height = window->height;
-  int width = window->width;
-
-  while(!window->close()) {
-    // TODO:: These calls are blocking and slow, move to a different thread...
-    window->poll();
-
-    if (window->height != height || window->width != width) {
-      vkDeviceWaitIdle(vk_device);
-
-      while (window->height == 0 || window->width == 0) 
-        window->wait();
-
-      height = window->height;
-      width = window->width;
-
-      resize_swapchain();
-    }
-
-    // draw()
-  }
-
+  render_loop();
 }
 // *Instance ////////////////////
 void Engine::init_instance() {
@@ -368,6 +350,26 @@ void Engine::resize_swapchain() {
   get_swapchain_image_views();
 }
 
+
+// *Viewport //////////////////
+VkViewport Engine::get_viewport() {
+  return {
+    .x = 0.0f,
+    .y = 0.0f, 
+    .width = (float)swapchain_settings.extent.width,
+    .height = (float)swapchain_settings.extent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f,
+  };
+}
+VkRect2D Engine::get_scissor() {
+  return {
+    .offset = { 0, 0 },
+    .extent = swapchain_settings.extent,
+  };
+}
+
+
 // *Renderpass ////////////////
 void Engine::init_renderpass() {
   VkAttachmentDescription attachment_description = {
@@ -470,19 +472,9 @@ void Engine::init_pipeline() {
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
   };
 
-  VkViewport viewport = {
-    .x = 0.0f,
-    .y = 0.0f, 
-    .width = (float)swapchain_settings.extent.width,
-    .height = (float)swapchain_settings.extent.height,
-    .minDepth = 0.0f,
-    .maxDepth = 1.0f,
-  };
+  VkViewport viewport = get_viewport();
 
-  VkRect2D scissor = {
-    .offset = { 0, 0 },
-    .extent = swapchain_settings.extent,
-  };
+  VkRect2D scissor = get_scissor();
 
   VkPipelineViewportStateCreateInfo viewport_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -526,6 +518,17 @@ void Engine::init_pipeline() {
   };
   auto check_layout = vkCreatePipelineLayout(vk_device, &layout_info, nullptr, &vk_layout);
 
+  VkDynamicState dyn_states[] = {
+    VK_DYNAMIC_STATE_VIEWPORT,
+    VK_DYNAMIC_STATE_SCISSOR,
+  };
+
+  VkPipelineDynamicStateCreateInfo dyn_state_info = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+    .dynamicStateCount = 2,
+    .pDynamicStates = dyn_states,
+  };
+
   VkGraphicsPipelineCreateInfo pipeline_info = {
     .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
     .stageCount = 2,
@@ -536,6 +539,7 @@ void Engine::init_pipeline() {
     .pRasterizationState = &rasterization_state,
     .pMultisampleState = &multisample_state,
     .pColorBlendState = &blend_state,
+    .pDynamicState = &dyn_state_info,
     .layout = vk_layout,
     .renderPass = vk_renderpass,
     .subpass = 0,
@@ -610,6 +614,193 @@ void Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count)
 
   vk_commandbuffers.length += buffer_count;
 }
+void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
+  VkCommandBufferBeginInfo cmd_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+
+  auto check_begin_buffer = vkBeginCommandBuffer(cmd, &cmd_begin_info);
+  DEBUG_OBJ_CREATION(vkBeginCommandBuffer, check_begin_buffer);
+
+  VkClearValue clear_color = {{{ 0.0f, 0.0f, 0.0f }}};
+  VkRenderPassBeginInfo renderpass_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = vk_renderpass,
+    .framebuffer = vk_framebuffers[image_index],
+    .renderArea = { 
+      .offset = {0, 0 },
+      .extent = swapchain_settings.extent,
+    },
+    .clearValueCount = 1,
+    .pClearValues = &clear_color,
+  };
+
+  vkCmdBeginRenderPass(cmd, &renderpass_info, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipeline);
+
+  VkViewport viewport = get_viewport();
+  VkRect2D scissor = get_scissor();
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+
+  vkCmdEndRenderPass(cmd);
+  auto check_end_buffer = vkEndCommandBuffer(cmd);
+  DEBUG_OBJ_CREATION(vkEndCommandBuffer, check_end_buffer);
+}
+
+
+// *Sync /////////////////
+void Engine::init_sync() {
+  vk_semaphores.init(4); 
+  vk_fences.init(2);
+
+  create_semaphores(4, true);
+  create_fences(2, true);
+}
+void Engine::kill_sync() {
+  for(uint32_t i = 0; i < vk_semaphores.length; ++i)
+    vkDestroySemaphore(vk_device, vk_semaphores[i], nullptr);
+  for(uint32_t i = 0; i < vk_fences.length; ++i) 
+    vkDestroyFence(vk_device, vk_fences[i], nullptr);
+
+  vk_semaphores.kill();
+  vk_fences.kill();
+}
+uint32_t Engine::create_semaphores(uint32_t count, bool binary) {
+  uint32_t length = vk_semaphores.length;
+  if (vk_semaphores.capacity - length < count)
+    vk_semaphores.grow(count * 2);
+
+  for(int i = 0; i < count; ++i) {
+    VkSemaphoreTypeCreateInfo timeline = {};
+
+    VkSemaphoreCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+      .pNext = binary ? nullptr : &timeline,
+    };
+    auto check = vkCreateSemaphore(vk_device, &info, nullptr, vk_semaphores.data + vk_semaphores.length);
+    DEBUG_OBJ_CREATION(vkCreateSemaphore, check);
+    ++vk_semaphores.length;
+  }
+
+  return length;
+}
+uint32_t Engine::create_fences(uint32_t count, bool signalled) {
+  uint32_t length = vk_fences.length;
+  if (vk_fences.capacity - length < count)
+    vk_fences.grow(count * 2);
+
+  for(int i = 0; i < count; ++i) {
+    VkFenceCreateFlags flags = signalled ? VK_FENCE_CREATE_SIGNALED_BIT : 0x0;
+    VkFenceCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+      .flags = flags,
+    };
+    auto check = vkCreateFence(vk_device, &info, nullptr, vk_fences.data + vk_fences.length);
+    DEBUG_OBJ_CREATION(vkCreateFence, check);
+    ++vk_fences.length;
+  }
+
+  return length;
+}
+
+
+// *Loop /////////////////
+void Engine::render_loop() {
+  int height = window->height;
+  int width = window->width;
+
+  uint32_t current_frame = 0;
+
+  while(!window->close()) {
+    // TODO:: These calls are blocking and slow, move to a different thread...
+    window->poll();
+
+    if (window->height != height || window->width != width) {
+
+      while (window->height == 0 || window->width == 0) 
+        window->wait();
+
+      height = window->height;
+      width = window->width;
+
+      vkDeviceWaitIdle(vk_device);
+
+      resize_swapchain();
+      resize_framebuffers();
+    }
+
+    draw_frame(&current_frame);
+  }
+
+  vkDeviceWaitIdle(vk_device);
+}
+
+void Engine::draw_frame(uint32_t *frame_index) {
+  VkFence render_done_fence = vk_fences[*frame_index];
+  VkSemaphore image_available = vk_semaphores[*frame_index];
+  VkSemaphore render_done = vk_semaphores[*frame_index + 1];
+  VkCommandBuffer cmd = vk_commandbuffers[*frame_index];
+
+  vkWaitForFences(vk_device, 1, &render_done_fence, VK_TRUE, UINT64_MAX);
+
+  uint32_t image_index;
+  auto check_acquire = vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
+
+  switch(check_acquire) {
+    case VK_SUCCESS:
+    case VK_ERROR_OUT_OF_DATE_KHR: 
+      break;
+    case VK_SUBOPTIMAL_KHR:
+      return;
+
+    default:
+      ABORT(false, "Failed to acquire swapchain image");
+  }
+
+
+  vkResetFences(vk_device, 1, &render_done_fence);
+  vkResetCommandPool(vk_device, vk_commandpools[*frame_index], 0x0);
+  record_command_buffer(cmd, image_index);
+
+  VkPipelineStageFlags output_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  VkSubmitInfo graphics_submit_info = {
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &image_available,
+    .pWaitDstStageMask = &output_stage,
+    .commandBufferCount = 1,
+    .pCommandBuffers = &cmd,
+    .signalSemaphoreCount = 1,
+    .pSignalSemaphores = &render_done,
+  };
+  auto check_graphics_submit = 
+    vkQueueSubmit(vk_graphics_queue, 1, &graphics_submit_info, render_done_fence);
+  DEBUG_OBJ_CREATION(vkQueueSubmit, check_graphics_submit);
+
+  VkPresentInfoKHR present_info = {
+    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &render_done,
+    .swapchainCount = 1,
+    .pSwapchains = &vk_swapchain,
+    .pImageIndices = &image_index,
+  };
+  auto check_present = vkQueuePresentKHR(vk_present_queue, &present_info);
+
+  *frame_index = (*frame_index + 1) % MAX_FRAME_COUNT;
+
+  switch(check_present) {
+    case VK_SUCCESS:
+      break;
+    case VK_ERROR_OUT_OF_DATE_KHR:
+    case VK_SUBOPTIMAL_KHR:
+      return;
+    default:
+      ABORT(false, "Presentation check failed");
+  }
+}
+
 
 
 

@@ -10,6 +10,8 @@ namespace Sol {
 
 #define V_LAYERS true
 
+#define MAX_FRAME_COUNT 2
+
 struct SwapchainSettings {
   VkSurfaceTransformFlagBitsKHR transform;
   VkExtent2D extent;
@@ -64,6 +66,10 @@ private:
   void kill_swapchain_image_views();
   void resize_swapchain();
 
+// Viewport
+  VkViewport get_viewport();
+  VkRect2D get_scissor();
+
 // Renderpass
   VkRenderPass vk_renderpass;
   void init_renderpass();
@@ -88,6 +94,24 @@ private:
   void init_command();
   void kill_command();
   void allocate_commandbuffers(uint32_t command_pool_index, uint32_t buffer_count);
+  void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
+
+// Sync
+  Vec<VkSemaphore> vk_semaphores;
+  Vec<VkFence> vk_fences;
+  void init_sync();
+  void kill_sync();
+  uint32_t create_semaphores(uint32_t count, bool binary);
+  uint32_t create_fences(uint32_t count, bool signalled);
+
+// Loop
+  void render_loop();
+  void draw_frame(uint32_t *frame_index);
+
+
+
+
+
 
 // Debug //////////////////////
 #if V_LAYERS
