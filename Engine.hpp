@@ -64,7 +64,30 @@ private:
   void kill_swapchain_image_views();
   void resize_swapchain();
 
+// Renderpass
+  VkRenderPass vk_renderpass;
+  void init_renderpass();
+  void kill_renderpass();
 
+// Pipeline
+  VkPipeline vk_pipeline;
+  VkPipelineLayout vk_layout;
+  void init_pipeline();
+  void kill_pipeline();
+  VkShaderModule create_shader_module(const char* file_name);
+
+// Framebuffer
+  Vec<VkFramebuffer> vk_framebuffers;
+  void init_framebuffers();
+  void kill_framebuffers();
+  void resize_framebuffers();
+
+// Command
+  Vec<VkCommandBuffer> vk_commandbuffers;
+  Vec<VkCommandPool> vk_commandpools;
+  void init_command();
+  void kill_command();
+  void allocate_commandbuffers(uint32_t command_pool_index, uint32_t buffer_count);
 
 // Debug //////////////////////
 #if V_LAYERS

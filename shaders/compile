@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+
+glslc $1.vert -o $1.vert.spv
+glslc $1.frag -o $1.frag.spv
+
+echo "compiled $1.vert and $1.frag"

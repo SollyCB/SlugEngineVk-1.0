@@ -24,6 +24,7 @@ set(SOURCE_FILES
 
   "common/Allocator.cpp"
   "common/VulkanErrors.cpp"
+  "common/File.cpp"
 
   "include/tlsf.cpp"
 )

@@ -3,6 +3,7 @@
 #include "Engine.hpp"
 #include "VulkanErrors.hpp"
 #include "FeaturesExtensions.hpp"
+#include "File.hpp"
 
 #include <iostream>
 #include <GLFW/glfw3.h>
@@ -26,7 +27,25 @@ void Engine::init() {
 #endif
   init_device();
   init_swapchain();
+  init_renderpass();
+  init_framebuffers();
+  init_pipeline();
+  init_command();
 }
+void Engine::kill() {
+  kill_command();
+  kill_pipeline();
+  kill_framebuffers();
+  kill_renderpass();
+  kill_swapchain();
+  kill_device();
+  kill_surface();
+#if V_LAYERS
+  kill_debug();
+#endif
+  kill_instance();
+}
+
 void Engine::run() {
   int height = window->height;
   int width = window->width;
@@ -39,7 +58,7 @@ void Engine::run() {
       vkDeviceWaitIdle(vk_device);
 
       while (window->height == 0 || window->width == 0) 
-        std::cout << "wait";
+        window->wait();
 
       height = window->height;
       width = window->width;
@@ -51,16 +70,6 @@ void Engine::run() {
   }
 
 }
-void Engine::kill() {
-  kill_swapchain();
-  kill_device();
-  kill_surface();
-#if V_LAYERS
-  kill_debug();
-#endif
-  kill_instance();
-}
-
 // *Instance ////////////////////
 void Engine::init_instance() {
   VkApplicationInfo app_info{};
@@ -240,6 +249,7 @@ void Engine::init_swapchain() {
 
   swapchain_images.init(2);
   swapchain_image_views.init(2);
+  vk_framebuffers.init(2);
 
   get_swapchain_images();
   get_swapchain_image_views();
@@ -248,6 +258,7 @@ void Engine::kill_swapchain() {
   kill_swapchain_image_views();
   vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
   swapchain_image_views.kill();
+  vk_framebuffers.kill();
   swapchain_images.kill();
 }
 void Engine::get_swapchain_settings() {
@@ -357,8 +368,252 @@ void Engine::resize_swapchain() {
   get_swapchain_image_views();
 }
 
+// *Renderpass ////////////////
+void Engine::init_renderpass() {
+  VkAttachmentDescription attachment_description = {
+    .format = swapchain_settings.format.format,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+  };
+  VkAttachmentReference attachment_reference = {
+    .attachment = 0,
+    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  };
+  VkSubpassDescription subpass_description = {
+    .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+    .colorAttachmentCount = 1,
+    .pColorAttachments = &attachment_reference,
+  };
+  VkSubpassDependency subpass_dependency = {
+    .srcSubpass = VK_SUBPASS_EXTERNAL,
+    .dstSubpass = 0,
+    .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    .srcAccessMask = 0,
+    .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+  };
+  VkRenderPassCreateInfo renderpass_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    .attachmentCount = 1,
+    .pAttachments = &attachment_description,
+    .subpassCount = 1,
+    .pSubpasses = &subpass_description,
+    .dependencyCount = 1,
+    .pDependencies = &subpass_dependency,
+  };
+
+  auto check = vkCreateRenderPass(vk_device, &renderpass_info, nullptr, &vk_renderpass);
+  DEBUG_OBJ_CREATION(vkCreateRenderPass, check);
+}
+void Engine::kill_renderpass() {
+  vkDestroyRenderPass(vk_device, vk_renderpass, nullptr);
+}
 
 
+// *Framebuffer
+void Engine::init_framebuffers() {
+  vk_framebuffers.length = swapchain_image_views.length;
+
+  for(uint32_t i = 0; i < swapchain_image_views.length; ++i) {
+    VkFramebufferCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+      .renderPass = vk_renderpass,
+      .attachmentCount = 1,
+      .pAttachments = &swapchain_image_views[i],
+      .width = swapchain_settings.extent.width,
+      .height = swapchain_settings.extent.height,
+      .layers = 1,
+    };
+    auto check = vkCreateFramebuffer(vk_device, &info, nullptr, &vk_framebuffers[i]);
+    DEBUG_OBJ_CREATION(vkCreateFramebuffer, check);
+  }
+}
+void Engine::kill_framebuffers() {
+  for(int i = 0; i < vk_framebuffers.length; ++i)
+    vkDestroyFramebuffer(vk_device, vk_framebuffers[i], nullptr);
+}
+void Engine::resize_framebuffers() {
+  kill_framebuffers();
+  init_framebuffers();
+}
+
+
+// *Pipeline ///////////////////////
+void Engine::init_pipeline() {
+  VkShaderModule vertex_module = create_shader_module("shaders/triangle1.vert.spv");
+  VkShaderModule fragment_module = create_shader_module("shaders/triangle1.frag.spv");
+  VkPipelineShaderStageCreateInfo stages[] = {
+    {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_VERTEX_BIT,
+      .module = vertex_module,
+      .pName = "main",
+    }, {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .module = fragment_module,
+      .pName = "main",
+    },
+  };
+
+  VkPipelineVertexInputStateCreateInfo vertex_input_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    .vertexBindingDescriptionCount = 0,
+    .vertexAttributeDescriptionCount = 0,
+  };
+
+  VkPipelineInputAssemblyStateCreateInfo vertex_assembly_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+  };
+
+  VkViewport viewport = {
+    .x = 0.0f,
+    .y = 0.0f, 
+    .width = (float)swapchain_settings.extent.width,
+    .height = (float)swapchain_settings.extent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f,
+  };
+
+  VkRect2D scissor = {
+    .offset = { 0, 0 },
+    .extent = swapchain_settings.extent,
+  };
+
+  VkPipelineViewportStateCreateInfo viewport_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+    .viewportCount = 1,
+    .pViewports = &viewport,
+    .scissorCount = 1,
+    .pScissors = &scissor,
+  };
+
+  VkPipelineRasterizationStateCreateInfo rasterization_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+    .depthClampEnable = VK_FALSE,
+    .rasterizerDiscardEnable = VK_FALSE,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_BACK_BIT,
+    .frontFace = VK_FRONT_FACE_CLOCKWISE,
+    .depthBiasEnable = VK_FALSE,
+    .lineWidth = 1.0f,
+  };
+
+  VkPipelineMultisampleStateCreateInfo multisample_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    .sampleShadingEnable = VK_FALSE,
+  };
+
+  VkPipelineColorBlendAttachmentState blend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+  };
+
+  VkPipelineColorBlendStateCreateInfo blend_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+    .logicOpEnable = VK_FALSE,
+    .attachmentCount = 1,
+    .pAttachments = &blend_attachment,
+  };
+
+  VkPipelineLayoutCreateInfo layout_info = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+  };
+  auto check_layout = vkCreatePipelineLayout(vk_device, &layout_info, nullptr, &vk_layout);
+
+  VkGraphicsPipelineCreateInfo pipeline_info = {
+    .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+    .stageCount = 2,
+    .pStages = stages,
+    .pVertexInputState = &vertex_input_state,
+    .pInputAssemblyState = &vertex_assembly_state,
+    .pViewportState = &viewport_state,
+    .pRasterizationState = &rasterization_state,
+    .pMultisampleState = &multisample_state,
+    .pColorBlendState = &blend_state,
+    .layout = vk_layout,
+    .renderPass = vk_renderpass,
+    .subpass = 0,
+  };
+
+  auto check_pipeline = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
+  DEBUG_OBJ_CREATION(vkCreateGraphicsPipelines, check_pipeline);
+
+  vkDestroyShaderModule(vk_device, vertex_module, nullptr);
+  vkDestroyShaderModule(vk_device, fragment_module, nullptr);
+}
+void Engine::kill_pipeline() {
+  vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
+  vkDestroyPipelineLayout(vk_device, vk_layout, nullptr);
+}
+VkShaderModule Engine::create_shader_module(const char* file_name) {
+  size_t code_size;
+  const uint32_t *p_code = (const uint32_t*)File::read_spirv(&code_size, file_name);
+  VkShaderModuleCreateInfo create_info = {
+    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    .codeSize = code_size, 
+    .pCode = p_code,
+  };
+  VkShaderModule module;
+  auto check = vkCreateShaderModule(vk_device, &create_info, nullptr, &module);
+  DEBUG_OBJ_CREATION(vkCreateShaderModule, check);
+
+  mem_free(p_code);
+  return module;
+}
+
+
+// *Command ////////////////////
+void Engine::init_command() {
+  vk_commandpools.init(2);
+  vk_commandbuffers.init(2);
+  vk_commandpools.length = 2;
+
+  // TODO: : This will break if present and graphics queues have different indices...
+  ABORT(graphics_queue_index == present_queue_index, "Queue families (present and graphics) are not equal");
+  for(uint32_t i = 0; i < 2; ++i) { 
+    VkCommandPoolCreateInfo pool_info = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .queueFamilyIndex = graphics_queue_index, 
+    };
+    auto check_pool = vkCreateCommandPool(vk_device, &pool_info, nullptr, &vk_commandpools[i]);
+    DEBUG_OBJ_CREATION(vkCreateCommandPool, check_pool);
+  }
+
+  for(uint32_t i = 0; i < 2; ++i) 
+    allocate_commandbuffers(i, 1);
+}
+void Engine::kill_command() {
+  for(int i = 0; i < vk_commandpools.length; ++i) 
+    vkDestroyCommandPool(vk_device, vk_commandpools[i], nullptr);
+
+  vk_commandbuffers.kill();
+  vk_commandpools.kill();
+}
+void Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count) {
+  if (vk_commandbuffers.capacity - vk_commandbuffers.length < buffer_count)
+    vk_commandbuffers.grow(buffer_count);
+
+  VkCommandBufferAllocateInfo info = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .commandPool = vk_commandpools[pool_index],
+    .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+    .commandBufferCount = buffer_count,
+  };
+  auto check = vkAllocateCommandBuffers(vk_device, &info, vk_commandbuffers.data + vk_commandbuffers.length);
+  DEBUG_OBJ_CREATION(vkAllocateCommandBuffers, check);
+
+  vk_commandbuffers.length += buffer_count;
+}
+
+
+
+// *Debug //////////////////////
 #if V_LAYERS
 void Engine::init_debug() {
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info;
