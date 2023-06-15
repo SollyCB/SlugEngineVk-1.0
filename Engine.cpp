@@ -1,7 +1,14 @@
 #include <cmath>
 #include <cstdint>
+#include <chrono>
+#include <exception>
+
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/vector_relational.hpp>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include "Engine.hpp"
 #include "VulkanErrors.hpp"
@@ -10,7 +17,6 @@
 
 #include <iostream>
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan_core.h>
 
 namespace Sol {
 
@@ -32,6 +38,8 @@ void Engine::init() {
   init_allocator();
   init_swapchain();
   init_renderpass();
+  init_desc_pool();
+  init_desc_set_layout();
   init_framebuffers();
   init_pipeline();
   init_command();
@@ -41,6 +49,8 @@ void Engine::kill() {
   kill_sync();
   kill_command();
   kill_pipeline();
+  kill_desc_set_layout();
+  kill_desc_pool();
   kill_framebuffers();
   kill_renderpass();
   kill_swapchain();
@@ -312,6 +322,53 @@ void Engine::alloc_vert_buf(size_t size) {
   DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
 }
 
+// *UBOs /////////////////////
+void Engine::alloc_ubos(size_t size) {
+  ubos.length = MAX_FRAME_COUNT;
+  for(int i = 0; i < MAX_FRAME_COUNT; ++i) {
+    VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = sizeof(UBO);
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+     
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | 
+      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+     
+    auto check = 
+      vmaCreateBuffer(
+          vma_allocator,
+          &bufferInfo,
+          &allocInfo,
+          &ubos[i].buf,
+          &ubos[i].alloc,
+          &ubos[i].alloc_info);
+    DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
+  }
+}
+void Engine::kill_ubos() {
+  for(int i = 0; i < ubos.length; ++i) 
+    vmaDestroyBuffer(vma_allocator, ubos[i].buf, ubos[i].alloc);
+  ubos.kill();
+}
+void Engine::update_ubo(uint32_t frame_index) {
+  static auto startTime = std::chrono::steady_clock::now();
+
+  auto currentTime = std::chrono::steady_clock::now();
+  float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+  UBO ubo = {};
+  ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+
+  ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+
+  ubo.projection = glm::perspective(glm::radians(45.0f), swapchain_settings.extent.width / (float) swapchain_settings.extent.height, 0.1f, 10.0f);
+  ubo.projection[1][1] *= -1;
+
+  memcpy(ubos[frame_index].alloc_info.pMappedData, &ubo, sizeof(ubo));
+}
+
 // *Swapchain /////////////////////////
 void Engine::init_swapchain() {
   get_swapchain_settings();
@@ -550,10 +607,82 @@ void Engine::resize_framebuffers() {
 }
 
 
+// *Descriptors
+void Engine::init_desc_pool() {
+  VkDescriptorPoolSize pool_size = {};
+  pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  pool_size.descriptorCount = MAX_FRAME_COUNT;
+
+  VkDescriptorPoolCreateInfo pool_info = {};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.poolSizeCount = 1;
+  pool_info.pPoolSizes = &pool_size;
+  pool_info.maxSets = MAX_FRAME_COUNT;
+
+  auto check = vkCreateDescriptorPool(vk_device, &pool_info, nullptr, &desc_pool);
+  DEBUG_OBJ_CREATION(vkCreateDescriptorPool, check);
+}
+void Engine::kill_desc_pool() {
+  vkDestroyDescriptorPool(vk_device, desc_pool, nullptr);
+}
+void Engine::init_desc_set_layout() {
+  ubos.init(MAX_FRAME_COUNT);
+  ubos.length = MAX_FRAME_COUNT;
+  size_t size = sizeof(UBO);
+  alloc_ubos(size);
+
+  VkDescriptorSetLayoutBinding ubo_layout_binding = {};
+  ubo_layout_binding.binding = 0;
+  ubo_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  ubo_layout_binding.descriptorCount = 1;
+  ubo_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  ubo_layout_binding.pImmutableSamplers = nullptr; // Optional
+
+  VkDescriptorSetLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+  layout_info.bindingCount = 1;
+  layout_info.pBindings = &ubo_layout_binding;
+
+  auto check_layouts = 
+    vkCreateDescriptorSetLayout(vk_device, &layout_info, nullptr, &vk_desc_set_layout);
+  DEBUG_OBJ_CREATION(vkCreateDescriptorSetLayout, check_layouts);
+
+  VkDescriptorSetLayout layouts[] = { vk_desc_set_layout, vk_desc_set_layout };
+  VkDescriptorSetAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+  alloc_info.descriptorPool = desc_pool;
+  alloc_info.descriptorSetCount = MAX_FRAME_COUNT;
+  alloc_info.pSetLayouts = layouts;
+
+  auto check_sets = 
+    vkAllocateDescriptorSets(vk_device, &alloc_info, desc_sets);
+  DEBUG_OBJ_CREATION(vkAllocateDescriptorSets, check_sets);
+
+  for(int i = 0; i < MAX_FRAME_COUNT; ++i) {
+    VkDescriptorBufferInfo buf_info = {};
+    buf_info.buffer = ubos[i].buf;
+    buf_info.offset = 0;
+    buf_info.range = sizeof(UBO);
+
+    VkWriteDescriptorSet desc_write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    desc_write.dstSet = desc_sets[i];
+    desc_write.dstBinding = 0;
+    desc_write.dstArrayElement = 0;
+    desc_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    desc_write.descriptorCount = 1;
+    desc_write.pBufferInfo = &buf_info;
+
+    vkUpdateDescriptorSets(vk_device, 1, &desc_write, 0, nullptr);
+  }
+}
+void Engine::kill_desc_set_layout() {
+  vkDestroyDescriptorSetLayout(vk_device, vk_desc_set_layout, nullptr);
+  kill_ubos();
+}
+
+
 // *Pipeline ///////////////////////
 void Engine::init_pipeline() {
-  VkShaderModule vertex_module = create_shader_module("shaders/triangle2.vert.spv");
-  VkShaderModule fragment_module = create_shader_module("shaders/triangle2.frag.spv");
+  VkShaderModule vertex_module = create_shader_module("shaders/triangle3.vert.spv");
+  VkShaderModule fragment_module = create_shader_module("shaders/triangle3.frag.spv");
   VkPipelineShaderStageCreateInfo stages[] = {
     {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -604,7 +733,7 @@ void Engine::init_pipeline() {
     .rasterizerDiscardEnable = VK_FALSE,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_BACK_BIT,
-    .frontFace = VK_FRONT_FACE_CLOCKWISE,
+    .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
     .depthBiasEnable = VK_FALSE,
     .lineWidth = 1.0f,
   };
@@ -629,6 +758,8 @@ void Engine::init_pipeline() {
 
   VkPipelineLayoutCreateInfo layout_info = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    .setLayoutCount = 1,
+    .pSetLayouts = &vk_desc_set_layout,
   };
   auto check_layout = vkCreatePipelineLayout(vk_device, &layout_info, nullptr, &vk_layout);
 
@@ -761,6 +892,16 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
   vkCmdSetViewport(cmd, 0, 1, &viewport);
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+  vkCmdBindDescriptorSets(
+      cmd,
+      VK_PIPELINE_BIND_POINT_GRAPHICS,
+      vk_layout,
+      0,
+      1,
+      &desc_sets[current_frame],
+      0,
+      nullptr);
+
   //vkCmdDraw(cmd, 3, 1, 0, 0);
   vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
 
@@ -857,7 +998,7 @@ void Engine::render_loop() {
   int height = window->height;
   int width = window->width;
 
-  uint32_t current_frame = 0;
+  current_frame = 0;
 
   size_t size = sizeof(IndexVertex);
   IndexVertex index_vertex;
@@ -916,6 +1057,8 @@ void Engine::draw_frame(uint32_t *frame_index) {
   vkResetFences(vk_device, 1, &render_done_fence);
   vkResetCommandPool(vk_device, vk_commandpools[*frame_index], 0x0);
   record_command_buffer(cmd, image_index);
+
+  update_ubo(*frame_index);
 
   VkPipelineStageFlags output_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   VkSubmitInfo graphics_submit_info = {

@@ -25,6 +25,12 @@ struct SwapchainSettings {
   VkPresentModeKHR present_mode;
 };
 
+struct UBO {
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 projection;
+};
+
 struct Vertex {
   glm::vec2 position;
   glm::vec3 color;
@@ -107,6 +113,8 @@ void init();
 void run();
 void kill();
 
+uint32_t current_frame;
+
 private:
 // Window
   Window* window;
@@ -148,6 +156,10 @@ private:
   void alloc_staging_buf(size_t size, void* data);
   VertexBuffer vert_buf;
   void alloc_vert_buf(size_t size);
+  Vec<GpuBuffer> ubos;
+  void alloc_ubos(size_t size);
+  void kill_ubos();
+  void update_ubo(uint32_t frame_index);
 
 // Swapchain
   VkSwapchainKHR vk_swapchain;
@@ -170,6 +182,15 @@ private:
   VkRenderPass vk_renderpass;
   void init_renderpass();
   void kill_renderpass();
+
+// Descriptors
+  VkDescriptorPool desc_pool;
+  void init_desc_pool();
+  void kill_desc_pool();
+  VkDescriptorSetLayout vk_desc_set_layout;
+  VkDescriptorSet desc_sets[MAX_FRAME_COUNT];
+  void init_desc_set_layout();
+  void kill_desc_set_layout();
 
 // Pipeline
   VkPipeline vk_pipeline;
