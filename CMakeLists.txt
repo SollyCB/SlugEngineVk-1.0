@@ -27,10 +27,15 @@ set(SOURCE_FILES
   "common/File.cpp"
 
   "include/tlsf.cpp"
+  "include/vk_mem_alloc.cpp"
 )
 add_executable(Slug ${SOURCE_FILES})
 
 target_compile_options(Slug PRIVATE "${GCC_COVERAGE_COMPILE_FLAGS}")
 target_link_libraries(Slug PRIVATE "${GCC_COVERAGE_LINK_FLAGS}")
 
-target_include_directories(Slug PUBLIC "${PROJECT_BINARY_DIR}" "common" "include")
+target_include_directories(Slug PUBLIC 
+  "${PROJECT_BINARY_DIR}" 
+  "common" 
+  "include"
+)

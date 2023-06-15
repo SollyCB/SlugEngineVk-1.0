@@ -12,7 +12,7 @@ struct InstanceExtensionsFeatures {
     };
 
     if (!names && !validation) {
-      *count = name_count - 2;
+      *count = name_count - 1;
       return;
     } else if (!names) {
       *count = name_count;

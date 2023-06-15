@@ -1,4 +1,6 @@
+#include <cmath>
 #include <cstdint>
+#include <glm/vector_relational.hpp>
 #include <vulkan/vulkan.hpp>
 
 #include "Engine.hpp"
@@ -27,6 +29,7 @@ void Engine::init() {
   init_debug();
 #endif
   init_device();
+  init_allocator();
   init_swapchain();
   init_renderpass();
   init_framebuffers();
@@ -41,6 +44,7 @@ void Engine::kill() {
   kill_framebuffers();
   kill_renderpass();
   kill_swapchain();
+  kill_allocator();
   kill_device();
   kill_surface();
 #if V_LAYERS
@@ -203,6 +207,109 @@ void Engine::choose_device() {
       return;
     }
   }
+}
+
+
+// *Allocator /////////////////////////
+void Engine::init_allocator() {
+  VmaVulkanFunctions vulkanFunctions = {};
+  vulkanFunctions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+  vulkanFunctions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+   
+  VmaAllocatorCreateInfo allocatorCreateInfo = {};
+  allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+  allocatorCreateInfo.physicalDevice = vk_physical_device;
+  allocatorCreateInfo.device = vk_device;
+  allocatorCreateInfo.instance = vk_instance;
+  allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
+   
+  auto check = vmaCreateAllocator(&allocatorCreateInfo, &vma_allocator);
+  DEBUG_OBJ_CREATION(vmaCreateAllocator, check);
+}
+void Engine::kill_allocator() {
+  free_buffer(vert_buf);
+  vmaDestroyAllocator(vma_allocator);
+}
+VkResult Engine::alloc_buffer(
+    size_t size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags pref_flags,
+    VkMemoryPropertyFlags req_flags,
+    VmaAllocationCreateFlags vma_flags,
+    GpuBuffer *buf) 
+{
+  VkBufferCreateInfo bufCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+  bufCreateInfo.size = size;
+  bufCreateInfo.usage = usage;
+   
+  VmaAllocationCreateInfo allocCreateInfo = {};
+  allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocCreateInfo.requiredFlags = req_flags;
+  allocCreateInfo.preferredFlags = pref_flags;
+  allocCreateInfo.flags = vma_flags;
+   
+  auto check = vmaCreateBuffer(
+      vma_allocator, 
+      &bufCreateInfo,
+      &allocCreateInfo,
+      &buf->buf,
+      &buf->alloc,
+      &buf->alloc_info);
+
+  DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
+
+  return check;
+}
+void Engine::free_buffer(GpuBuffer buf) {
+  vmaDestroyBuffer(vma_allocator, buf.buf, buf.alloc);
+}
+
+// *VertexBuffer ////////////////////
+VertexBuffer::~VertexBuffer() {}
+// *StagingBuffer ///////////////////
+StagingBuffer::~StagingBuffer() {}
+void Engine::alloc_staging_buf(size_t size, void* data) {
+  VkBufferCreateInfo bufCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+  bufCreateInfo.size = size;
+  bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+   
+  VmaAllocationCreateInfo allocCreateInfo = {};
+  allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+      VMA_ALLOCATION_CREATE_MAPPED_BIT;
+   
+  auto check = vmaCreateBuffer(
+      vma_allocator,
+      &bufCreateInfo,
+      &allocCreateInfo,
+      &staging_buf.buf,
+      &staging_buf.alloc,
+      &staging_buf.alloc_info);
+  DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
+   
+  memcpy(staging_buf.alloc_info.pMappedData, data, size);
+}
+void Engine::alloc_vert_buf(size_t size) {
+  VkBufferCreateInfo bufCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+  bufCreateInfo.size = size;
+  bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
+    VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+   
+  VmaAllocationCreateInfo allocCreateInfo = {};
+  allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocCreateInfo.flags = 0x0;
+  allocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+   
+  auto check = vmaCreateBuffer(
+      vma_allocator,
+      &bufCreateInfo,
+      &allocCreateInfo,
+      &vert_buf.buf,
+      &vert_buf.alloc,
+      &vert_buf.alloc_info);
+   
+  DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
 }
 
 // *Swapchain /////////////////////////
@@ -445,8 +552,8 @@ void Engine::resize_framebuffers() {
 
 // *Pipeline ///////////////////////
 void Engine::init_pipeline() {
-  VkShaderModule vertex_module = create_shader_module("shaders/triangle1.vert.spv");
-  VkShaderModule fragment_module = create_shader_module("shaders/triangle1.frag.spv");
+  VkShaderModule vertex_module = create_shader_module("shaders/triangle2.vert.spv");
+  VkShaderModule fragment_module = create_shader_module("shaders/triangle2.frag.spv");
   VkPipelineShaderStageCreateInfo stages[] = {
     {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -461,10 +568,17 @@ void Engine::init_pipeline() {
     },
   };
 
+  VkVertexInputBindingDescription input_desc;
+  Vertex::get_binding_description(&input_desc);
+  VkVertexInputAttributeDescription attribute_descs[2];
+  Vertex::get_attribute_description(attribute_descs);
+
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-    .vertexBindingDescriptionCount = 0,
-    .vertexAttributeDescriptionCount = 0,
+    .vertexBindingDescriptionCount = 1,
+    .pVertexBindingDescriptions = &input_desc,
+    .vertexAttributeDescriptionCount = 2,
+    .pVertexAttributeDescriptions = attribute_descs,
   };
 
   VkPipelineInputAssemblyStateCreateInfo vertex_assembly_state = {
@@ -599,8 +713,9 @@ void Engine::kill_command() {
   vk_commandbuffers.kill();
   vk_commandpools.kill();
 }
-void Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count) {
-  if (vk_commandbuffers.capacity - vk_commandbuffers.length < buffer_count)
+uint32_t Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count) {
+  uint32_t length = (uint32_t)vk_commandbuffers.length;
+  if (vk_commandbuffers.capacity - length < buffer_count)
     vk_commandbuffers.grow(buffer_count);
 
   VkCommandBufferAllocateInfo info = {
@@ -613,6 +728,7 @@ void Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count)
   DEBUG_OBJ_CREATION(vkAllocateCommandBuffers, check);
 
   vk_commandbuffers.length += buffer_count;
+  return length;
 }
 void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
   VkCommandBufferBeginInfo cmd_begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -626,7 +742,7 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
     .renderPass = vk_renderpass,
     .framebuffer = vk_framebuffers[image_index],
     .renderArea = { 
-      .offset = {0, 0 },
+      .offset = { 0, 0 },
       .extent = swapchain_settings.extent,
     },
     .clearValueCount = 1,
@@ -636,18 +752,49 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
   vkCmdBeginRenderPass(cmd, &renderpass_info, VK_SUBPASS_CONTENTS_INLINE);
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipeline);
 
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &vert_buf.buf, &offset);
+  vkCmdBindIndexBuffer(cmd, vert_buf.buf, sizeof(Vertex) * 4, VK_INDEX_TYPE_UINT32);
+
   VkViewport viewport = get_viewport();
   VkRect2D scissor = get_scissor();
   vkCmdSetViewport(cmd, 0, 1, &viewport);
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  vkCmdDraw(cmd, 3, 1, 0, 0);
+  //vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(cmd);
   auto check_end_buffer = vkEndCommandBuffer(cmd);
   DEBUG_OBJ_CREATION(vkEndCommandBuffer, check_end_buffer);
 }
+void Engine::record_and_submit_cpy(size_t size, size_t index_offset) {
+  uint32_t pool_index = 0;
+  uint32_t index = allocate_commandbuffers(pool_index, 1); 
 
+  VkCommandBuffer cmd = vk_commandbuffers[index];
+  VkCommandBufferBeginInfo begin_info{};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  vkBeginCommandBuffer(cmd, &begin_info);
+    
+    VkBufferCopy copy_region{};
+    copy_region.size = sizeof(Vertex) * vertex_count + sizeof(Index) * index_count;
+    vkCmdCopyBuffer(cmd, staging_buf.buf, vert_buf.buf, 1, &copy_region);
+
+  vkEndCommandBuffer(cmd);
+
+  VkSubmitInfo submit_info{};
+  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &cmd;
+
+  vkQueueSubmit(vk_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+  vkQueueWaitIdle(vk_graphics_queue);
+  vkResetCommandPool(vk_device, vk_commandpools[pool_index], 0x0);
+  vkFreeCommandBuffers(vk_device, vk_commandpools[pool_index], 1, &cmd);
+}
 
 // *Sync /////////////////
 void Engine::init_sync() {
@@ -711,6 +858,13 @@ void Engine::render_loop() {
   int width = window->width;
 
   uint32_t current_frame = 0;
+
+  size_t size = sizeof(IndexVertex);
+  IndexVertex index_vertex;
+  alloc_staging_buf(size, &index_vertex); 
+  alloc_vert_buf(size);
+  record_and_submit_cpy(size, sizeof(Vertex) * 4);
+  vmaDestroyBuffer(vma_allocator, staging_buf.buf, staging_buf.alloc);
 
   while(!window->close()) {
     // TODO:: These calls are blocking and slow, move to a different thread...
