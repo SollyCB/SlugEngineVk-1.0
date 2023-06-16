@@ -359,11 +359,13 @@ void Engine::update_ubo(uint32_t frame_index) {
   float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
   UBO ubo = {};
-  ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
-  ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  //ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  ubo.view = mat_view;
 
-  ubo.projection = glm::perspective(glm::radians(45.0f), swapchain_settings.extent.width / (float) swapchain_settings.extent.height, 0.1f, 10.0f);
+  //ubo.projection = glm::perspective(glm::radians(45.0f), swapchain_settings.extent.width / (float) swapchain_settings.extent.height, 0.1f, 10.0f);
+  ubo.projection = mat_proj;
   ubo.projection[1][1] *= -1;
 
   memcpy(ubos[frame_index].alloc_info.pMappedData, &ubo, sizeof(ubo));
@@ -732,7 +734,7 @@ void Engine::init_pipeline() {
     .depthClampEnable = VK_FALSE,
     .rasterizerDiscardEnable = VK_FALSE,
     .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_BACK_BIT,
+    .cullMode = VK_CULL_MODE_NONE,
     .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
     .depthBiasEnable = VK_FALSE,
     .lineWidth = 1.0f,
@@ -1006,10 +1008,17 @@ void Engine::render_loop() {
   alloc_vert_buf(size);
   record_and_submit_cpy(size, sizeof(Vertex) * 4);
   vmaDestroyBuffer(vma_allocator, staging_buf.buf, staging_buf.alloc);
+  auto then = std::chrono::system_clock::now();
 
   while(!window->close()) {
     // TODO:: These calls are blocking and slow, move to a different thread...
     window->poll();
+    auto now = std::chrono::system_clock::now();
+    std::chrono::duration<float> delta_time = now - then;
+    then = now;
+    camera->delta_time = delta_time.count();
+    mat_proj = camera->get_proj();
+    mat_view = camera->get_view();
 
     if (window->height != height || window->width != width) {
 

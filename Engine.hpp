@@ -7,6 +7,7 @@
 
 #include "Window.hpp"
 #include "Vec.hpp"
+#include "Camera.hpp"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -25,10 +26,11 @@ struct SwapchainSettings {
   VkPresentModeKHR present_mode;
 };
 
+// NOTE:: BEWARE ALIGNMENT REQUIREMENTS!!
 struct UBO {
-  glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 projection;
+  /* alignas(16) */ glm::mat4 model;
+  /* alignas(16) */ glm::mat4 view;
+  /* alignas(16) */ glm::mat4 projection;
 };
 
 struct Vertex {
@@ -118,6 +120,9 @@ uint32_t current_frame;
 private:
 // Window
   Window* window;
+  Camera* camera = Camera::instance();
+  glm::mat4 mat_view;
+  glm::mat4 mat_proj;
 
 // Instance
   VkInstance vk_instance;
@@ -225,7 +230,6 @@ private:
 // Loop
   void render_loop();
   void draw_frame(uint32_t *frame_index);
-
 
 
 
