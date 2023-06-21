@@ -1,7 +1,8 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
 #include "Camera.hpp"
+
+#include <GLFW/glfw3.h>
 
 namespace Sol {
 
@@ -22,9 +23,18 @@ struct Window {
 
   GLFWwindow *window;
 
-  void init(void* ptr);
+  // NOTE:: bools in structs (Acton God), but here cache miss will never be a performance sink. 
+  // (loaded once per frame, in the io thread)
+  bool input = true;
 
   void init_glfw(void *ptr);
+  void poll();
+
+  inline void init() {
+    Window* ptr = instance();
+    init_glfw(ptr);
+  }
+
   inline void kill() {
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -33,12 +43,11 @@ struct Window {
   inline bool close() {
     return glfwWindowShouldClose(window);
   } 
-  inline void poll() {
-    glfwPollEvents();
-  } 
+
   inline void size() {
     glfwGetFramebufferSize(window, &width, &height);
   }
+
   inline void wait() {
     glfwWaitEvents();
   }

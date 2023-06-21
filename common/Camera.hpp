@@ -1,80 +1,99 @@
-#pragma once
+#pragma once 
 
-#define GLM_FORCE_RADIANS 
+#define GLM_FORCE_RADIANS
+
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
 #include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+
+#include "Clock.hpp"
 
 namespace Sol {
 
+using namespace glm;
+
+enum Direction {
+  FORWARD,
+  BACKWARD,
+  LEFT,
+  RIGHT,
+};
+
 struct Camera {
+
   static Camera* instance();
-  virtual ~Camera() {}
-  float window_width = 640;
-  float window_height = 480;
-  float xpos = 0; 
-  float ypos = 0;
-  float yaw = 0;
+
+  float yaw = -90.0f;
   float pitch = 0.0f;
+  float speed = 5.0;
+  float sens = 4.0;
   float fov = 60.0f;
   float delta_time = 0;
+  float near_plane = 0.1f;
+  float far_plane = 100.0f;
 
-  float speed = 3.0f; 
-  float sens = 0.3;
-
-  glm::vec3 position = glm::vec3(0, 0, 10);
-
-  glm::mat4 model;
-  glm::mat4 view;
-  glm::mat4 proj;
-
-  inline void updates() {
-    float change = sens * delta_time;
-    yaw += change * xpos;
-    pitch += change * ypos;
-  }
-  inline glm::mat4 get_view() {
-    
-    // Reference:
-    /* https://stackoverflow.com/questions/49609654/quaternion-based-first-person-view-camera */
-
-    //FPS camera:  RotationX(pitch) * RotationY(yaw)
-    glm::quat quat_pitch = glm::angleAxis(pitch, glm::vec3(1, 0, 0));
-    glm::quat quat_yaw = glm::angleAxis(yaw, glm::vec3(0, 1, 0));
-    //glm::quat qRoll = glm::angleAxis(roll,glm::vec3(0,0,1));  
-
-    //For a FPS camera we can omit roll
-    glm::quat orientation = quat_pitch * quat_yaw;
-    orientation = glm::normalize(orientation);
-    glm::mat4 rotate = glm::mat4_cast(orientation);
-
-    glm::mat4 translate = glm::mat4(1.0f);
-    glm::vec3 eye( cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));
-    translate = glm::translate(translate, -eye);
-
-    view = rotate * translate;
-    return view;
-  }
-  inline glm::mat4 get_proj() {
-    proj = glm::perspective(glm::radians(fov), window_width / window_height, 0.1f, 100.0f);
-    return proj;
-  }
-  inline glm::mat4 update_and_calc_proj_view(float delta_time) {
-    updates();
-    return get_proj() * get_view();
+  float height = 480.0f;
+  float width = 640.0f;
+  
+  vec3 pos = vec3(0.0, 0.0, 3.0);
+  vec3 front;
+  vec3 right;
+  vec3 up;
+  
+  void set_time() {
+    float time = Clock::instance()->set_time();
+    delta_time =  time / 1e9;
   }
 
-  inline void zoom(float zoom) {
-    fov -= zoom;
+  mat4 mat_view() {
+    return lookAt(pos, pos + front, up);
   }
-};
+  mat4 mat_proj() {
+    float c_width = width <= 0 ? 1 : width;
+    float c_height = height <= 0 ? 1 : height;
+    return perspective(radians(fov), c_width / c_height, near_plane, far_plane);
+  }
+  void move(Direction dir) {
+    float vel = speed * delta_time;
+    if (dir == FORWARD)
+      pos += front * vel;
+    if (dir == BACKWARD)
+      pos -= front * vel;
+    if (dir == LEFT)
+      pos -= right * vel;
+    if (dir == RIGHT)
+      pos += right * vel;
+  }
+  void look(float xpos, float ypos) {
+    float new_sens = sens * delta_time;
+    xpos *= new_sens;
+    ypos *= new_sens;
+    yaw += xpos;
+    pitch -= ypos;
 
-struct FlyCamera : public Camera {
-  ~FlyCamera() override;
-};
+    if (pitch > 89.0f)
+      pitch = 89.0f;
+    if (pitch < -89.0f)
+      pitch = -89.0f;
 
-struct FpsCamera : public Camera {
-  ~FpsCamera() override;
+    update();
+  }
+  void zoom(float ypos) {
+    fov -= ypos;
+    if (fov < 20) 
+      fov = 20;
+    if (fov > 90)
+      fov = 90;
+  }
+  void update() {
+    front.x = cos(radians(yaw)) * cos(radians(pitch));
+    front.y = sin(radians(pitch));
+    front.z = sin(radians(yaw)) * cos(radians(pitch));
+    front = normalize(front);
+
+    right = normalize(cross(front, vec3(0, 1, 0)));
+    up = normalize(cross(right, front));
+  }
 };
 
 } // Sol

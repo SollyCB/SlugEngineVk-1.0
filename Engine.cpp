@@ -1,7 +1,8 @@
 #include <cmath>
 #include <cstdint>
-#include <chrono>
 #include <exception>
+#include <sys/types.h>
+#include <system_error>
 
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
@@ -27,13 +28,19 @@ Engine* Engine::instance() {
 
 // *Public ////////////////
 void Engine::init() {
-  window = Window::instance();
-  window->init(window);
+  /*  
+   *  This could be called from "main()", but as it is only the rendering engine that currently 
+   *  requires it, it can stay here. If I find that there is no better way of getting input than 
+   *  querying the window, but input is integral to other systems (not just render) this will move.
+   */ 
+  window->init(); 
+
   init_instance();
-  init_surface();
 #if V_LAYERS 
   init_debug();
 #endif
+
+  init_surface();
   init_device();
   init_allocator();
   init_swapchain();
@@ -81,6 +88,11 @@ void Engine::init_instance() {
   instance_info.pApplicationInfo = &app_info;
   instance_info.flags = 0x0;
 
+  /* 
+   * Torvalds discourages in the Kernel style guide conditional compilation in source code 
+   * (rather than header) files, But because of the way vulkan works (its different software to kernel 
+   * code), and for the fact that this is tiny and trivially obvious, I am ok with it...
+   */ 
 #if V_LAYERS 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info;
   populate_debug_create_info(&debug_create_info);
@@ -359,13 +371,13 @@ void Engine::update_ubo(uint32_t frame_index) {
   float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
   UBO ubo = {};
-  ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  ubo.model = glm::mat4(1.0f); //glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 
   //ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-  ubo.view = mat_view;
+  ubo.view = camera->mat_view();
 
   //ubo.projection = glm::perspective(glm::radians(45.0f), swapchain_settings.extent.width / (float) swapchain_settings.extent.height, 0.1f, 10.0f);
-  ubo.projection = mat_proj;
+  ubo.projection = camera->mat_proj();
   ubo.projection[1][1] *= -1;
 
   memcpy(ubos[frame_index].alloc_info.pMappedData, &ubo, sizeof(ubo));
@@ -427,17 +439,23 @@ void Engine::get_swapchain_settings() {
 
   bool format_check = false;
   for(uint32_t i = 0; i < format_count; ++i) {
-    if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB
-        && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-    { swapchain_settings.format = formats[i]; format_check = true; break; }
+    if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && 
+        formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      swapchain_settings.format = formats[i];
+      format_check = true;
+      break;
+    }
   }
   if (!format_check)
     swapchain_settings.format = formats[0];
 
   bool mode = false;
   for(uint32_t i = 0; i < mode_count; ++i) {
-    if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) 
-    { mode = true; swapchain_settings.present_mode = modes[i]; break; }
+    if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) { 
+      mode = true; 
+      swapchain_settings.present_mode = modes[i]; 
+      break; 
+    }
   }
 
   DEBUG_ABORT(mode, "Bad swapchain settings (present mode)");
@@ -1008,22 +1026,22 @@ void Engine::render_loop() {
   alloc_vert_buf(size);
   record_and_submit_cpy(size, sizeof(Vertex) * 4);
   vmaDestroyBuffer(vma_allocator, staging_buf.buf, staging_buf.alloc);
-  auto then = std::chrono::system_clock::now();
+  float then = clock->set_time();
+
+  camera->update();
 
   while(!window->close()) {
+    camera->set_time();
     // TODO:: These calls are blocking and slow, move to a different thread...
     window->poll();
-    auto now = std::chrono::system_clock::now();
-    std::chrono::duration<float> delta_time = now - then;
-    then = now;
-    camera->delta_time = delta_time.count();
-    mat_proj = camera->get_proj();
-    mat_view = camera->get_view();
 
     if (window->height != height || window->width != width) {
-
-      while (window->height == 0 || window->width == 0) 
-        window->wait();
+      /* 
+       * This (below commented code) seems to be unnecessary, 
+       * but maybe that is only on my hardware? Or some setting, idk... 
+       */
+      //while (window->height == 0 || window->width == 0) 
+        //window->wait();
 
       height = window->height;
       width = window->width;
@@ -1161,6 +1179,6 @@ void Engine::vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMe
       func(instance, debugMessenger, pAllocator);
   }
 }
-#endif
+#endif // V_LAYERS
 
-}
+} // namespace Sol

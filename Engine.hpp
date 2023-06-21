@@ -8,6 +8,7 @@
 #include "Window.hpp"
 #include "Vec.hpp"
 #include "Camera.hpp"
+#include "Clock.hpp"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -95,9 +96,7 @@ struct GpuBuffer {
 struct VertexBuffer : public GpuBuffer {
   ~VertexBuffer() override;
 
-  // NOTE:: This could be made smaller?
   uint32_t stride = sizeof(Vertex);
-  // uint32_t offset; <- NOTE:: necessary?
 };
 struct StagingBuffer : public GpuBuffer {
   ~StagingBuffer() override;
@@ -119,10 +118,9 @@ uint32_t current_frame;
 
 private:
 // Window
-  Window* window;
+  Clock* clock = Clock::instance();
   Camera* camera = Camera::instance();
-  glm::mat4 mat_view;
-  glm::mat4 mat_proj;
+  Window* window = Window::instance();
 
 // Instance
   VkInstance vk_instance;
@@ -248,7 +246,8 @@ private:
     void* pUserData);
   VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
   void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
-#endif
-};
+#endif // V_LAYERS
 
-} // Sol
+}; // struct Engine
+
+} // namespace Sol

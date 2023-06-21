@@ -26,6 +26,7 @@ set(SOURCE_FILES
   "common/VulkanErrors.cpp"
   "common/File.cpp"
   "common/Camera.cpp"
+  "common/Clock.cpp"
 
   "include/tlsf.cpp"
   "include/vk_mem_alloc.cpp"
