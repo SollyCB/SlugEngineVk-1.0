@@ -3,7 +3,7 @@
 namespace Sol {
 
 struct SpvParser {
-  void parse(uint32_t code_size, void* spirv);
+    void parse(uint32_t code_size, void *spirv);
 };
 
-} // Sol
+} // namespace Sol

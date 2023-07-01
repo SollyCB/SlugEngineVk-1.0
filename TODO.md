@@ -4,7 +4,8 @@
 models, load them, and then serialize them. Once a model is loaded and serialized, it should be written to a 
 file in its serialized state, so models do not have to re-serialized each runtime - the serialized model is loaded 
 instead. Hashes of the models should be stored alongside model names: if the hash for a model changes, it is 
-re-serialized and rehashed; if a new name is found, it is serialized and hashed.
+re-serialized and rehashed;
+if a new name is found, it is serialized and hashed.
 
 2. Actually use serialized glTF - big job
 

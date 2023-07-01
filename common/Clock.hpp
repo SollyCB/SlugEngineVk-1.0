@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include <chrono>
 
@@ -10,21 +10,20 @@ typedef std::chrono::duration<float> fsec;
 typedef std::chrono::steady_clock::time_point TimePoint;
 
 struct Clock {
-  static Clock* instance();
+    static Clock *instance();
 
-  TimePoint now = Time::now();
+    TimePoint now = Time::now();
 
-  // returns the time difference from when it was last called
-  float set_time() {
-    auto t = Time::now();
-    auto fs = t - now;
-    now = t;
-    return fs.count();
-  }
-  // returns the time until dur == 0
-  float timer(fsec dur);
+    // returns the time difference from when it was last called
+    float set_time() {
+        auto t = Time::now();
+        auto fs = t - now;
+        now = t;
+        return fs.count();
+    }
+    // returns the time until dur == 0
+    float timer(fsec dur);
 };
 
 
-
-} // Sol
+} // namespace Sol

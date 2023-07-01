@@ -6,10 +6,11 @@ namespace Sol {
 /*
   **=**=**=**=**=**=**=**=*=*
 
-   Nothing Here Compiles. It can be removed as it the same code as in Array.hpp, 
-   but idk if there is really any downside to keeping it. Really it is more of a 
-   placeholder to remind me if templates can be used in cpp files (It compiled more 
-   easily with the code in the hpp file, idk if I am doing smtg retarded...).
+   Nothing Here Compiles. It can be removed as it the same code as in Array.hpp,
+   but idk if there is really any downside to keeping it. Really it is more of a
+   placeholder to remind me if templates can be used in cpp files (It compiled
+  more easily with the code in the hpp file, idk if I am doing smtg
+  retarded...).
 
   *=**=**=**=**=**=**=**=*
 */
@@ -58,4 +59,4 @@ T& Array<T>::operator[](size_t i) {
 }
 #endif
 
-} // namespace Sol 
+} // namespace Sol

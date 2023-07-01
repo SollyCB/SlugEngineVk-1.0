@@ -3,6 +3,6 @@
 namespace Sol {
 
 static Camera sCamera;
-Camera* Camera::instance() { return &sCamera; }
+Camera *Camera::instance() { return &sCamera; }
 
-} // Sol
+} // namespace Sol

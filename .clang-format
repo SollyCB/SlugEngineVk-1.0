@@ -1,0 +1,8 @@
+Language: Cpp
+AccessModifierOffset: -2
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: false
+AlignConsecutiveAssignments: false
+IndentWidth: 4
+ColumnLimit: 80 
+MaxEmptyLinesToKeep: 2

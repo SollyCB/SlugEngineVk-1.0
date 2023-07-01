@@ -5,95 +5,96 @@
 
 namespace Sol {
 
-Window* Window::instance() {
-  return &sWindow;
-}
+Window *Window::instance() { return &sWindow; }
 
 void Window::init_glfw(void *ptr) {
-  if (!glfwInit())
-    ABORT(false, "GLFW init failed");
-  if (!glfwVulkanSupported())
-    ABORT(false, "GLFW no Vulkan support");
+    if (!glfwInit())
+        ABORT(false, "GLFW init failed");
+    if (!glfwVulkanSupported())
+        ABORT(false, "GLFW no Vulkan support");
 
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window = glfwCreateWindow(WIDTH, HEIGHT, "SlugVk", NULL, NULL);
-  if (!window)
-    ABORT(false, "GLFW window creation failed");
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    window = glfwCreateWindow(WIDTH, HEIGHT, "SlugVk", NULL, NULL);
+    if (!window)
+        ABORT(false, "GLFW window creation failed");
 
-  camera->width = WIDTH;
-  camera->height = HEIGHT;
+    camera->width = WIDTH;
+    camera->height = HEIGHT;
 
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-  glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-  glfwSetKeyCallback(window, key_callback);
-  glfwSetWindowUserPointer(window, ptr);
-  glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-  glfwSetCursorPosCallback(window, cursor_position_callback);
-  glfwSetScrollCallback(window, scroll_callback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    glfwSetKeyCallback(window, key_callback);
+    glfwSetWindowUserPointer(window, ptr);
+    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+    glfwSetCursorPosCallback(window, cursor_position_callback);
+    glfwSetScrollCallback(window, scroll_callback);
 }
 
 void Window::poll() {
-  glfwPollEvents();
+    glfwPollEvents();
 
-  if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
-    input = false;
-  }
-  if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-    input = true;
-  }
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+        input = false;
+    }
+    if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+        input = true;
+    }
 
-  if (input) {
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) 
-      camera->move(FORWARD);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-      camera->move(BACKWARD);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-      camera->move(LEFT);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-      camera->move(RIGHT);
+    if (input) {
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+            camera->move(FORWARD);
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+            camera->move(BACKWARD);
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            camera->move(LEFT);
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            camera->move(RIGHT);
 
-    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
-      camera->sens -= 500;
-    if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
-      camera->sens += 500;
-    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
-      camera->speed -= 500;
-    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
-      camera->speed += 500;
-  }
-} 
-
-void Window::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-  if (key == GLFW_KEY_Q && action == GLFW_PRESS)
-      glfwSetWindowShouldClose(window, GLFW_TRUE);
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+            camera->sens -= 500;
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
+            camera->sens += 500;
+        if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+            camera->speed -= 500;
+        if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+            camera->speed += 500;
+    }
 }
-void Window::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-  auto ptr = (Window*)glfwGetWindowUserPointer(window);
-  ptr->width = width;
-  ptr->height = height;
-  ptr->camera->height = height;
-  ptr->camera->width = width;
-}
-void Window::cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
-  auto ptr = (Window*)glfwGetWindowUserPointer(window);
 
-  if (ptr->input) {
-    float xoffset = xpos - ptr->xpos;
-    float yoffset = ypos - ptr->ypos;
-    ptr->xpos = xpos;
-    ptr->ypos = ypos;
-
-    ptr->camera->look(xoffset, yoffset);
-  }
+void Window::key_callback(GLFWwindow *window, int key, int scancode, int action,
+                          int mods) {
+    if (key == GLFW_KEY_Q && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
-void Window::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-  auto ptr = (Window*)glfwGetWindowUserPointer(window);
-  ptr->camera->zoom(yoffset);
+void Window::framebufferResizeCallback(GLFWwindow *window, int width,
+                                       int height) {
+    auto ptr = (Window *)glfwGetWindowUserPointer(window);
+    ptr->width = width;
+    ptr->height = height;
+    ptr->camera->height = height;
+    ptr->camera->width = width;
+}
+void Window::cursor_position_callback(GLFWwindow *window, double xpos,
+                                      double ypos) {
+    auto ptr = (Window *)glfwGetWindowUserPointer(window);
+
+    if (ptr->input) {
+        float xoffset = xpos - ptr->xpos;
+        float yoffset = ypos - ptr->ypos;
+        ptr->xpos = xpos;
+        ptr->ypos = ypos;
+
+        ptr->camera->look(xoffset, yoffset);
+    }
+}
+void Window::scroll_callback(GLFWwindow *window, double xoffset,
+                             double yoffset) {
+    auto ptr = (Window *)glfwGetWindowUserPointer(window);
+    ptr->camera->zoom(yoffset);
 }
 
 } // namespace Sol
