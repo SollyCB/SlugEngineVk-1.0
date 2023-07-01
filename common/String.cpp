@@ -1,160 +1,160 @@
-#include <cstdarg>
-
 #include "String.hpp"
 #include "Allocator.hpp"
+#include "VulkanErrors.hpp"
 
 namespace Sol {
 
-/* StringView Start */
-void StringView::init(const char* _string, size_t _length) {
-  string = _string;
-  length = _length;
+// StringView ///////////////////
+void StringView::copy_to_buf(StringBuffer *buf, size_t start, size_t end) {
+  char *ptr = buf->str;
+  ABORT(start < end, "StringView::copy_to_buf: start > end");
+  mem_cpy(buf->str, ptr + start, end - start);
 }
 
-/* StringView End */
-
-/* StringBuffer Start */
-void StringBuffer::init(size_t _capacity, Allocator* _allocator) {
-  capacity = _capacity;
-  allocator = _allocator;
-  if (capacity != 0)
-    data = reinterpret_cast<char*>(mem_alloc(capacity, allocator));
+// StringBuffer /////////////////
+StringBuffer StringBuffer::get(size_t size, const char* str_) {
+  StringBuffer buf;
+  if (size > 0) {
+    buf.init(size);
+    buf.copy_here(str_, size);
+  } else {
+    buf.copy_here(str_, 0);
+  }
+  return buf;
+}
+StringBuffer StringBuffer::get(size_t size, std::string str_) {
+  StringBuffer buf;
+  if (size > 0) {
+    buf.init(size);
+    buf.copy_here(str_.c_str(), size);
+  } else {
+    buf.copy_here(str_.c_str(), 0);
+  }
+  return buf;
+}
+StringBuffer StringBuffer::get(size_t size, const char* str_, Allocator *alloc_) {
+  StringBuffer buf;
+  if (size > 0) {
+    buf.init(size, alloc_);
+    buf.copy_here(str_, size);
+  } else {
+    buf.copy_here(str_, 0);
+  }
+  return buf;
+}
+StringBuffer StringBuffer::get(size_t size, std::string str_, Allocator *alloc_) {
+  StringBuffer buf;
+  if (size > 0) {
+    buf.init(size, alloc_);
+    buf.copy_here(str_.c_str(), size);
+  } else {
+    buf.copy_here(str_.c_str(), 0);
+  }
+  return buf;
 }
 
+void StringBuffer::init(size_t size) {
+  ABORT(size > 0, "StringBuffer::init: size must be greater than 0");
+  cap = size; 
+
+  if (alloc == &MemoryService::instance()->system_allocator)
+    str = (char*)mem_alloc(size + 1);
+  else 
+    str = (char*)lin_alloca(size + 1, 1);
+  str[0] = '\0';
+}
+void StringBuffer::init(size_t size, Allocator *alloc_) {
+  cap = size;
+  alloc = alloc_;
+
+  if (alloc == &MemoryService::instance()->system_allocator)
+    str = (char*)mem_alloc(size + 1);
+  else 
+    str = (char*)lin_alloca(size + 1, 1);
+}
 void StringBuffer::kill() {
-  mem_free(data, allocator);
-  capacity = 0;
-  length = 0;
+  if (alloc == &MemoryService::instance()->system_allocator)
+    mem_free(str);
 }
 
-void StringBuffer::resize(size_t size) {
-  data = reinterpret_cast<char*>(mem_realloc(size, data, allocator));
-  capacity = size;
-  if (length > size)
-    length = size;
-}
-
-void StringBuffer::copy_here(const char* _data, size_t size) {
-  if ((capacity - length) < size) 
-    resize(size - (capacity - length));
-
-  mem_cpy(data + length, _data, size);
-  length += size;
-}
-void StringBuffer::copy_here(StringView *view) {
-  if ((capacity - length) < view->length) 
-    resize(view->length - (capacity - length));
-
-  mem_cpy(data + length, view->string, view->length);
-  length += view->length;
-}
-
-StringView StringBuffer::get_view(size_t start, size_t _length) {
-  if (_length == 0) 
-    _length = length;
-
-  StringView view;
-  view.length = _length;
-  view.string = const_cast<const char*>(data + start);
-
-  return view;
-}
-/* StringBuffer End */
-
-/* StringArray Start */
-void StringArray::init(size_t string_count, size_t _capacity, Allocator* _allocator) {
-  buffer.init(_capacity, _allocator); 
-  indices.init(string_count, _allocator);
-}
-
-void StringArray::kill() {
-  buffer.kill();
-  indices.kill();
-}
-
-size_t StringArray::get_str_count() {
-  return indices.length;
-}
-
-void StringArray::push(const char* string, size_t length) {
-  if ((buffer.capacity - buffer.length) < length)
-    buffer.resize(buffer.capacity * 2 + length);
-
-  StartEnd index;
-  index.start = buffer.length;
-  buffer.copy_here(string, length);
-  index.length = buffer.length - index.start;
-  indices.push(index);
-}
-
-StringView StringArray::pop() {
-  StringView view;
-  if (buffer.length == 0)
-    return view;
-
-  PopResult<StartEnd> pop = indices.pop();
-  if (!pop.some) {
-    buffer.length = 0;
-    return view;
+void StringBuffer::grow(size_t size) {
+  // +1 for null byte is not in the cap
+  if (alloc == &MemoryService::instance()->system_allocator) {
+    str = (char*)mem_realloc(size + cap + 1, str);
+  } else {
+    char* old_str = str;
+    str = (char*)lin_alloca(size + cap + 1, 1);
+    mem_cpy(str, old_str, len + 1); // len + 1 for null byte
   }
-
-  view = buffer.get_view(pop.item.start, pop.item.length);
-  size_t cut_len = pop.item.length;
-  buffer.length -= cut_len;
-
-  return view;
+  cap += size;
+  str[len] = '\0'; // Just for safety sake, in case for whatever reason it wasnt there for the copy...
 }
-
-void StringArray::resize(size_t size) {
-  buffer.resize(size);
-  indices.resize(size);
-}
-
-StringView StringArray::operator[](size_t i) {
-  StartEnd index = indices[i];
-  StringView view;
-  view.string = buffer.data + index.start;
-  view.length = index.length;
-  return view;
-}
-/* StringArray End */
-
-/* String Start */
-void String::concat(StringBuffer *buffer, uint32_t string_count, ...) {
-  va_list args;
-  va_start(args, string_count);
-
-  uint32_t lengths[string_count];
-  const char* strings[string_count];
-  size_t size = 1;
-
-  for(uint32_t arg_index = 0; arg_index < string_count; ++arg_index) {
-    uint32_t length = 0;
-    const char* str = va_arg(args, const char*);
-    for(uint32_t str_index = 0; str[str_index] != '\0'; ++str_index) {
-      ++length;
+void StringBuffer::copy_here(const char *str_, size_t size) {
+  if (size == 0) {
+    while(str_[size] != '\0')
       ++size;
-    }
-    lengths[arg_index] = length;
-    strings[arg_index] = str;
   }
 
-  buffer->resize(size);
-  for(uint32_t arg_index = 0; arg_index < string_count; ++arg_index) {
-    buffer->copy_here(strings[arg_index], lengths[arg_index]);
-  } 
-  buffer->data[buffer->length] = '\0';
+  size_t rem = cap - len;
+  if (rem < size) 
+    grow(size - rem);
 
-  va_end(args);
+  mem_cpy(str, str_, size);
+  len = size;
+  str[len] = '\0';
 }
 
-size_t String::count(const char* str) {
-  for(size_t i = 0; true; ++i) {
-    if (str[i] == '\0')
-      return i + 1;
-  }
+void StringBuffer::copy_here(std::string str_, size_t size) {
+  size = str_.length();
+  if (size == 0)
+    return;
+  //ABORT(size > 0, "StringBuffer::copy_here size to copy must be > 0");
+
+  if (cap < size) 
+    grow(size - cap);
+
+  mem_cpy((void*)str, (void*)str_.c_str(), size);
+  len = size;
+  str[len] = '\0';
 }
 
-/* String End */
+void StringBuffer::push(const char *str_) {
+  size_t size = 0;
+  while(str_[size] != '\0')
+    ++size;
 
+  size_t rem = cap - len;
+  if (rem < size)
+    grow(size - rem);
+
+  mem_cpy(str + len, str_, size);
+  len += size;
+  str[len] = '\0';
 }
+void StringBuffer::push(std::string str_) {
+  size_t size = str_.length();
+
+  size_t rem = cap - len;
+  if (rem < size)
+    grow(size - rem);
+
+  mem_cpy(str + len, str_.c_str(), size);
+  len += size;
+  str[len] = '\0';
+}
+
+const char* StringBuffer::c_str() {
+  if (len == 0)
+    return "\0";
+  else 
+    return (const char*)str;
+}
+StringView StringBuffer::view(size_t start, size_t end) {
+  StringView view;
+  view.buf = this;
+  view.start = start;
+  view.end = end;
+  return view;
+}
+
+} // namespace Sol

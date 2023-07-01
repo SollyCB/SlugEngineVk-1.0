@@ -1026,7 +1026,6 @@ void Engine::render_loop() {
   alloc_vert_buf(size);
   record_and_submit_cpy(size, sizeof(Vertex) * 4);
   vmaDestroyBuffer(vma_allocator, staging_buf.buf, staging_buf.alloc);
-  float then = clock->set_time();
 
   camera->update();
 
@@ -1034,6 +1033,7 @@ void Engine::render_loop() {
     camera->set_time();
     // TODO:: These calls are blocking and slow, move to a different thread...
     window->poll();
+    std::cout << camera->delta_time << '\n';
 
     if (window->height != height || window->width != width) {
       /* 

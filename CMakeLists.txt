@@ -27,6 +27,8 @@ set(SOURCE_FILES
   "common/File.cpp"
   "common/Camera.cpp"
   "common/Clock.cpp"
+  "common/String.cpp"
+  "common/glTF.cpp"
 
   "include/tlsf.cpp"
   "include/vk_mem_alloc.cpp"

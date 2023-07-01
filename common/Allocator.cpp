@@ -2,27 +2,37 @@
 #include <iostream>
 #include <cstring>
 
-#include "../include/tlsf.h"
+#include "tlsf.h"
 #include "Allocator.hpp"
+#include "VulkanErrors.hpp"
 
 //#define NDEBUG
 #include <assert.h>
 
 namespace Sol {
 
-/* MemoryService */
+size_t mem_align(size_t size, size_t alignment) {
+  const size_t alignment_mask = alignment - 1;
+  return (size + alignment_mask) & ~alignment_mask;
+}
+
+// MemoryService //////////////////////
 static MemoryService GlobalMemoryService;
 MemoryService *MemoryService::instance() { return &GlobalMemoryService; }
 void MemoryService::init(MemoryConfig* config) {
-  std::cout << "Initializing memory service, allocating " << config->default_size << " bytes...\n";
-  system_allocator.init(config->default_size);
+  std::cout << "Initializing memory service, allocating " << config->heap_size << " bytes to HeapAllocator...\n";
+  system_allocator.init(config->heap_size);
+  std::cout << "Allocating " << config->linear_size << " bytes to LinearAllocator...\n";
+  scratch_allocator.init(config->linear_size);
 }
-void MemoryService::shutdown() { system_allocator.shutdown(); }
+void MemoryService::shutdown() { 
+  scratch_allocator.kill();
+  system_allocator.shutdown(); 
+}
 
-/* HeapAllocator */
+// HeapAllocator /////////////////////
 HeapAllocator::~HeapAllocator() { }
 
-  /* Initialize/Kill service */
 void HeapAllocator::init(size_t size) {
   memory = malloc(size);
   limit = size;
@@ -31,7 +41,7 @@ void HeapAllocator::init(size_t size) {
 } // init
 
 void HeapAllocator::shutdown() {
-  MemoryStats stats = { 0, limit };
+  MemoryStatsHeap stats = { 0, limit };
   pool_t pool = tlsf_get_pool(handle);
   tlsf_walk_pool(pool, nullptr, (void*)&stats);
   if (stats.allocated_bytes)
@@ -78,5 +88,48 @@ void HeapAllocator::deallocate(void* ptr) {
   }
 #endif
 } 
+
+// LinearAllocator ////////////////////
+LinearAllocator::~LinearAllocator() { }
+
+void *LinearAllocator::reallocate(size_t size, void* ptr) { return nullptr; }
+void LinearAllocator::deallocate(void* ptr) { }
+
+void LinearAllocator::init(size_t size) {
+  mem = (uint8_t*)malloc(size);
+  cap = size;
+}
+void *LinearAllocator::allocate(size_t size, size_t alignment) {
+  size_t pad = mem_align(size, alignment) - size;
+#ifdef MEM_STATS
+  stats.alloc(size + pad);
+#endif
+  void* ptr = (void*)(mem + alloced + pad);
+  alloced += pad + size;
+  ABORT(alloced < cap, "Linear Allocator: Overflow");
+  return ptr;
+}
+void LinearAllocator::cut(size_t size) {
+  alloced -= size;
+#ifdef MEM_STATS
+  stats.dealloc(size); 
+#endif
+}
+void LinearAllocator::free() {
+  alloced = 0;
+#ifdef MEM_STATS 
+  stats.dealloc(stats.alloced);
+#endif
+}
+void LinearAllocator::kill() { 
+  std::cout << "Linear allocator freed\n";
+#ifdef MEM_STATS
+  std::cout << "        Remaining Allocation size in LinearAllocator: " << stats.alloced << '\n';
+  stats.alloced = 0;
+#endif
+  cap = 0; 
+  DEBUG_ABORT(mem, "Linear Allocator: free nullptr");
+  ::free((void*)mem);
+}
 
 } // namespace Sol
