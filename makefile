@@ -1,7 +1,6 @@
 
-all : cmake.- B build &&make - C build - j 4 && cp build /
-                                                    compile_commands.json
-                                                        .
+all: 
+	cmake . -B build && make -C build -j 4 && cp build/compile_commands.json .
 
-                                                    run
-    : all./ build / Slug
+run: all
+	./build/Slug

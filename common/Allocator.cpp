@@ -20,10 +20,10 @@ size_t mem_align(size_t size, size_t alignment) {
 static MemoryService GlobalMemoryService;
 MemoryService *MemoryService::instance() { return &GlobalMemoryService; }
 void MemoryService::init(MemoryConfig* config) {
-  std::cout << "Initializing memory service, allocating " << config->heap_size << " bytes to HeapAllocator...\n";
-  system_allocator.init(config->heap_size);
-  std::cout << "Allocating " << config->linear_size << " bytes to LinearAllocator...\n";
-  scratch_allocator.init(config->linear_size);
+  std::cout << "Initializing memory service, allocating " << config->size_heap << " bytes to system allocator...\n";
+  system_allocator.init(config->size_heap);
+  std::cout << "Initializing memory service, allocating " << config->size_linear << " bytes to scrath allocator...\n";
+  scratch_allocator.init(config->size_linear);
 }
 void MemoryService::shutdown() { 
   scratch_allocator.kill();
@@ -66,18 +66,23 @@ void *HeapAllocator::allocate(size_t size, size_t alignment) {
 #endif
   return allocated_mem;
 }
-void *HeapAllocator::reallocate(size_t size, void* ptr) { 
-  void *allocated_mem = tlsf_realloc(handle, ptr, size);
-  size_t actual_size = tlsf_block_size(allocated_mem);
-  allocated += actual_size;
-  return allocated_mem;
+void *HeapAllocator::reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) { 
+    // Unused variable complaint
+    cpy_size = 0; // NULL
+    alignment = 0; // NULL
+
+    void *allocated_mem = tlsf_realloc(handle, ptr, size);
+    size_t actual_size = tlsf_block_size(allocated_mem);
+    allocated += actual_size;
+    return allocated_mem;
 }
 void HeapAllocator::deallocate(void* ptr) {
   size_t actual_size = tlsf_block_size(ptr);
   allocated -= actual_size;
   tlsf_free(handle, ptr);
+
 #if defined MEM_STATS
-  // TODO: make this use SIMD to scan the pointers...
+  // TODO: SIMD?
   for(size_t i = 0; i < active_allocations->size(); ++i) {
     if ((*active_allocations)[i] == ptr) {
       size_t last_index = active_allocations->size() - 1;
@@ -92,8 +97,15 @@ void HeapAllocator::deallocate(void* ptr) {
 // LinearAllocator ////////////////////
 LinearAllocator::~LinearAllocator() { }
 
-void *LinearAllocator::reallocate(size_t size, void* ptr) { return nullptr; }
-void LinearAllocator::deallocate(void* ptr) { }
+void *LinearAllocator::reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) { 
+    void* new_ptr = allocate(size, alignment);
+    mem_cpy(new_ptr, ptr, cpy_size);
+    return new_ptr;
+}
+void LinearAllocator::deallocate(void* ptr) { 
+    ptr = nullptr;
+    alloced = 0;
+}
 
 void LinearAllocator::init(size_t size) {
   mem = (uint8_t*)malloc(size);

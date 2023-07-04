@@ -122,6 +122,8 @@ struct Engine {
     Clock *clock = Clock::instance();
     Camera *camera = Camera::instance();
     Window *window = Window::instance();
+    Allocator *alloc_heap = &MemoryService::instance()->system_allocator;
+    Allocator *alloc_scratch = &MemoryService::instance()->scratch_allocator;
 
     // Instance
     VkInstance vk_instance;

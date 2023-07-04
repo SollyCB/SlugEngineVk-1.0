@@ -5,154 +5,135 @@
 namespace Sol {
 
 // StringView ///////////////////
-void StringView::copy_to_buf(StringBuffer *buf, size_t start, size_t end) {
+void StringView::copy_to_buf(StringBuffer *buf, size_t start, size_t end)
+{
     char *ptr = buf->str;
     ABORT(start < end, "StringView::copy_to_buf: start > end");
     mem_cpy(buf->str, ptr + start, end - start);
 }
 
 // StringBuffer /////////////////
-StringBuffer StringBuffer::get(size_t size, const char *str_) {
+StringBuffer StringBuffer::nil() {
     StringBuffer buf;
-    if (size > 0) {
-        buf.init(size);
-        buf.copy_here(str_, size);
-    } else {
-        buf.copy_here(str_, 0);
-    }
     return buf;
 }
-StringBuffer StringBuffer::get(size_t size, std::string str_) {
+StringBuffer StringBuffer::get(const char *cstr, size_t size)
+{
     StringBuffer buf;
-    if (size > 0) {
-        buf.init(size);
-        buf.copy_here(str_.c_str(), size);
-    } else {
-        buf.copy_here(str_.c_str(), 0);
-    }
+    buf.init(size);
+    buf.copy_here(cstr, size);
     return buf;
 }
-StringBuffer StringBuffer::get(size_t size, const char *str_,
-                               Allocator *alloc_) {
+StringBuffer StringBuffer::get(std::string std_str, size_t size)
+{
     StringBuffer buf;
-    if (size > 0) {
-        buf.init(size, alloc_);
-        buf.copy_here(str_, size);
-    } else {
-        buf.copy_here(str_, 0);
-    }
+    buf.init(size);
+    buf.copy_here(std_str, size);
     return buf;
 }
-StringBuffer StringBuffer::get(size_t size, std::string str_,
-                               Allocator *alloc_) {
+StringBuffer StringBuffer::get(const char *cstr, size_t size, Allocator *alloc_)
+{
     StringBuffer buf;
-    if (size > 0) {
-        buf.init(size, alloc_);
-        buf.copy_here(str_.c_str(), size);
-    } else {
-        buf.copy_here(str_.c_str(), 0);
-    }
+    buf.init(size, alloc_);
+    buf.copy_here(cstr, size);
+    return buf;
+}
+StringBuffer StringBuffer::get(std::string std_str, size_t size, Allocator *alloc_)
+{
+    StringBuffer buf;
+    buf.init(size, alloc_);
+    buf.copy_here(std_str, size);
     return buf;
 }
 
-void StringBuffer::init(size_t size) {
+size_t StringBuffer::cstr_len(const char* cstr) {
+    size_t size = 0;
+    while (cstr[size] != '\0')
+        ++size;
+    return size;
+}
+
+void StringBuffer::init(size_t size)
+{
     ABORT(size > 0, "StringBuffer::init: size must be greater than 0");
+    str = reinterpret_cast<char*>(mem_alloca(size + 1, 1, alloc));
     cap = size;
 
-    if (alloc == &MemoryService::instance()->system_allocator)
-        str = (char *)mem_alloc(size + 1);
-    else
-        str = (char *)lin_alloca(size + 1, 1);
-    str[0] = '\0';
+    str[len] = '\0';
 }
-void StringBuffer::init(size_t size, Allocator *alloc_) {
+void StringBuffer::init(size_t size, Allocator *alloc_)
+{
     cap = size;
     alloc = alloc_;
 
-    if (alloc == &MemoryService::instance()->system_allocator)
-        str = (char *)mem_alloc(size + 1);
-    else
-        str = (char *)lin_alloca(size + 1, 1);
+    str = reinterpret_cast<char*>(mem_alloca(size + 1, 1, alloc));
+    str[len] = '\0';
 }
-void StringBuffer::kill() {
+void StringBuffer::kill()
+{
     if (alloc == &MemoryService::instance()->system_allocator)
-        mem_free(str);
+        mem_free(str, alloc);
 }
 
-void StringBuffer::grow(size_t size) {
+void StringBuffer::grow(size_t size)
+{
     // +1 for null byte is not in the cap
-    if (alloc == &MemoryService::instance()->system_allocator) {
-        str = (char *)mem_realloc(size + cap + 1, str);
-    } else {
-        char *old_str = str;
-        str = (char *)lin_alloca(size + cap + 1, 1);
-        mem_cpy(str, old_str, len + 1); // len + 1 for null byte
-    }
+    str = (char *)mem_realloc(size + cap + 1, len + 1, str, 1, alloc);
     cap += size;
-    str[len] = '\0'; // Just for safety sake, in case for whatever reason it
-                     // wasnt there for the copy...
+    // Null byte should already be copied over
+    // str[len] = '\0'; 
 }
-void StringBuffer::copy_here(const char *str_, size_t size) {
-    if (size == 0) {
-        while (str_[size] != '\0')
-            ++size;
-    }
-
-    size_t rem = cap - len;
-    if (rem < size)
-        grow(size - rem);
+void StringBuffer::copy_here(const char *str_, size_t size)
+{
+    ABORT(size <=cap,  "StringBuffer::copy_here: Allocate more memory!");
 
     mem_cpy(str, str_, size);
     len = size;
     str[len] = '\0';
 }
 
-void StringBuffer::copy_here(std::string str_, size_t size) {
-    size = str_.length();
-    if (size == 0)
-        return;
-    // ABORT(size > 0, "StringBuffer::copy_here size to copy must be > 0");
+void StringBuffer::copy_here(std::string std_str, size_t size)
+{
+    ABORT(size <= cap, "StringBuffer::copy_here: Allocate more memory!");
 
-    if (cap < size)
-        grow(size - cap);
-
-    mem_cpy((void *)str, (void *)str_.c_str(), size);
+    mem_cpy((void *)str, (void *)std_str.c_str(), size);
     len = size;
     str[len] = '\0';
 }
 
-void StringBuffer::push(const char *str_) {
-    size_t size = 0;
-    while (str_[size] != '\0')
-        ++size;
+void StringBuffer::push(const char *cstr)
+{
+    size_t size = cstr_len(cstr);
 
-    size_t rem = cap - len;
-    if (rem < size)
-        grow(size - rem);
+    ABORT(size <= cap - len, "StringBuffer::push: Allocate more memory (size > cap - len)!")
 
-    mem_cpy(str + len, str_, size);
+    mem_cpy(str + len, cstr, size);
     len += size;
     str[len] = '\0';
 }
-void StringBuffer::push(std::string str_) {
-    size_t size = str_.length();
+void StringBuffer::push(std::string std_str)
+{
+    size_t size = std_str.length();
 
-    size_t rem = cap - len;
-    if (rem < size)
-        grow(size - rem);
+    ABORT(size <= cap - len, "StringBuffer::push: Allocate more memory (size > cap - len)!")
 
-    mem_cpy(str + len, str_.c_str(), size);
+    mem_cpy(str + len, std_str.c_str(), size);
     len += size;
     str[len] = '\0';
 }
 
-const char *StringBuffer::c_str() {
+const char *StringBuffer::cstr()
+{
+#if 0 
     if (len == 0)
+        // In case StringBuffer is for some reason uninitialized
         return "\0";
     else
-        return (const char *)str;
+#endif
+    return (const char *)str;
 }
-StringView StringBuffer::view(size_t start, size_t end) {
+StringView StringBuffer::view(size_t start, size_t end)
+{
     StringView view;
     view.buf = this;
     view.start = start;

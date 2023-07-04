@@ -43,7 +43,7 @@ static std::vector<void*> Global_Allocation_Tracker;
 struct Allocator {
   virtual ~Allocator() {}
   virtual void *allocate(size_t size, size_t alignment) = 0;
-  virtual void *reallocate(size_t size, void* ptr) = 0;
+  virtual void *reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) = 0;
   virtual void deallocate(void* ptr) = 0; 
 };
 
@@ -64,7 +64,7 @@ struct HeapAllocator : public Allocator {
 
   /* General API */
   void *allocate(size_t size, size_t alignment) override;
-  void *reallocate(size_t size, void* ptr) override;
+  void *reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) override;
   void deallocate(void* ptr) override; 
 };
 
@@ -82,7 +82,7 @@ struct LinearAllocator : public Allocator {
 
   /* General API */
   void *allocate(size_t size, size_t alignment) override;
-  void *reallocate(size_t size, void* ptr) override;
+  void *reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) override;
   void deallocate(void* ptr) override; 
 #ifdef MEM_STATS
   MemoryStatsLinear stats;
@@ -90,8 +90,8 @@ struct LinearAllocator : public Allocator {
 };
 
 struct MemoryConfig {
-  size_t heap_size = 32 * 1024 * 1024;
-  size_t linear_size = 1024 * 1024;
+  size_t size_heap = 32 * 1024 * 1024;
+  size_t size_linear = 32 * 1024;
 };
 
 struct MemoryService {
@@ -104,16 +104,18 @@ struct MemoryService {
   void shutdown();
 };
 
-inline void mem_cpy(void* to, void* from, size_t size);
+//inline void mem_cpy(void *to, void *from, size_t size) {
+    //mem_cpy(to, from, size);
+//}
 
 #define lin_alloca(size, alignment) ((Sol::MemoryService::instance()->scratch_allocator).allocate(size, alignment))
+#define heap_alloca(size, alignment) ((Sol::MemoryService::instance()->system_allocator).allocate(size, alignment))
+#define lin_free(ptr) ((Sol::MemoryService::instance()->scratch_allocator).deallocate(ptr))
+#define heap_free(ptr) ((Sol::MemoryService::instance()->system_allocator).deallocate(ptr))
+
+#define mem_alloca(size, alignment, alloc) ((alloc)->allocate(size, alignment))
+#define mem_realloc(size, cpy_size, ptr, alignment, alloc) ((alloc)->reallocate(size, cpy_size, (void*)(ptr), alignment))
+#define mem_free(ptr, alloc) ((alloc)->deallocate((void*)(ptr)))
 #define mem_cpy(to, from, size) (memcpy(to, from, size))
-
-#define mem_alloc2(size, alignment, alloc) ((alloc)->allocate(size, alignment))
-#define mem_alloca(size, alignment) ((Sol::MemoryService::instance()->system_allocator).allocate(size, alignment))
-#define mem_alloc(size) ((Sol::MemoryService::instance()->system_allocator).allocate(size, 1))
-
-#define mem_realloc(size, ptr) ((Sol::MemoryService::instance()->system_allocator).reallocate(size, (void*)(ptr)))
-#define mem_free(ptr) ((Sol::MemoryService::instance()->system_allocator).deallocate((void*)(ptr)))
 
 } // Sol

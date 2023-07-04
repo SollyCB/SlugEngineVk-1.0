@@ -2,6 +2,7 @@
 
 // clang-format off
 
+#include <alloca.h>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -30,11 +31,11 @@ struct Vec {
       cap = 2;
     capacity = cap;
     allocator = &Sol::MemoryService::instance()->system_allocator;
-    data = (T*)mem_alloca(cap * sizeof(T), 8);
+    data = (T*)mem_alloca(cap * sizeof(T), 8, allocator);
   }
 
   void kill() {
-    mem_free(data);
+    mem_free(data, allocator);
 		length = 0;
 		capacity = 0;
   }
@@ -64,20 +65,20 @@ struct Vec {
     ++length;
   }
   void resize(size_t size) {
-    data = reinterpret_cast<T*>(mem_realloc(size * sizeof(T), data));
+    data = reinterpret_cast<T*>(mem_realloc(size * sizeof(T), length, data, 8, allocator));
   }
   void grow(size_t size) {
     capacity *= size;
-    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8);
+    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8, allocator);
     mem_cpy(new_data, data, length * sizeof(T));
-    mem_free(data);
+    mem_free(data, allocator);
     data = new_data;
   }
   void grow() {
     capacity *= 2;
-    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8);
+    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8, allocator);
     mem_cpy(new_data, data, length * sizeof(T));
-    mem_free(data);
+    mem_free(data, allocator);
     data = new_data;
   }
   T& operator[](size_t i) {

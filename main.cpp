@@ -19,8 +19,8 @@ int main() {
     else {
         gltf.fill(model_file);
         std::cout << "Loaded Model '" << model_file_name
-                  << "', gltf version: " << gltf.asset.version.c_str()
-                  << ", Copyright: '" << gltf.asset.copyright.c_str() << "'\n";
+                  << "', gltf version: " << gltf.asset.version.cstr()
+                  << ", Copyright: '" << gltf.asset.copyright.cstr() << "'\n";
     }
 
     Engine::instance()->init();

@@ -1,3 +1,4 @@
+#include "Allocator.hpp"
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -827,7 +828,7 @@ void Engine::kill_pipeline() {
 VkShaderModule Engine::create_shader_module(const char *file_name) {
     size_t code_size;
     const uint32_t *p_code =
-        (const uint32_t *)File::read_spirv(&code_size, file_name);
+        (const uint32_t *)File::read_spirv(&code_size, file_name, alloc_heap);
     VkShaderModuleCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = code_size,
@@ -838,7 +839,7 @@ VkShaderModule Engine::create_shader_module(const char *file_name) {
         vkCreateShaderModule(vk_device, &create_info, nullptr, &module);
     DEBUG_OBJ_CREATION(vkCreateShaderModule, check);
 
-    mem_free(p_code);
+    heap_free((void*)p_code);
     return module;
 }
 

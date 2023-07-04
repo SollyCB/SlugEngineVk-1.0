@@ -27,10 +27,12 @@ struct StringBuffer {
      * !! size argument should not include null byte, this is already accounted
      * for !!
      */
-    static StringBuffer get(size_t size, const char *str_);
-    static StringBuffer get(size_t size, std::string str_);
-    static StringBuffer get(size_t size, const char *str_, Allocator *alloc_);
-    static StringBuffer get(size_t size, std::string str_, Allocator *alloc_);
+    static StringBuffer nil();
+    static StringBuffer get(const char *cstr, size_t size);
+    static StringBuffer get(std::string std_str, size_t size);
+    static StringBuffer get(const char *cstr, size_t size, Allocator *alloc_);
+    static StringBuffer get(std::string std_str, size_t size, Allocator *alloc_);
+    static size_t cstr_len(const char* cstr);
 
     void init(size_t size);
     void init(size_t size, Allocator *allocator_);
@@ -43,7 +45,7 @@ struct StringBuffer {
 
     void push(const char *str_);
     void push(std::string str_);
-    const char *c_str();
+    const char *cstr();
     StringView view(size_t start, size_t end);
 };
 
