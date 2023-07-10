@@ -8,6 +8,7 @@ using namespace Sol;
 int main() {
     MemoryConfig mem_config;
     MemoryService::instance()->init(&mem_config);
+    LinearAllocator *scratch = &MemoryService::instance()->scratch_allocator;
 
     const char *model_file_name = "test_1.gltf";
     glTF::Json model_file;
@@ -22,7 +23,9 @@ int main() {
                   << "', gltf version: " << gltf.asset.version.cstr()
                   << ", Copyright: '" << gltf.asset.copyright.cstr() << "'\n";
     }
+    
 
+    scratch->free();
     Engine::instance()->init();
     Engine::instance()->run();
     Engine::instance()->kill();

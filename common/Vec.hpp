@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "Allocator.hpp"
+#include "VulkanErrors.hpp"
 
 namespace Sol {
 
@@ -20,69 +21,77 @@ struct PopResult {
 
 template <typename T>
 struct Vec {
-  size_t length = 0;
-  size_t capacity = 0;
+  size_t len = 0;
+  size_t cap = 0;
   T* data = nullptr;
-  Allocator* allocator = nullptr;
+  Allocator* alloc = nullptr;
 
   /* General API */
-  void init(size_t cap) {
-    if (cap == 0)
-      cap = 2;
-    capacity = cap;
-    allocator = &Sol::MemoryService::instance()->system_allocator;
-    data = (T*)mem_alloca(cap * sizeof(T), 8, allocator);
+  void init(size_t cap_) {
+      //ABORT(cap_ > 0, "Vec::init(size_t cap) cap must be greater than 0)");
+    
+    cap = cap_;
+    alloc = &Sol::MemoryService::instance()->system_allocator;
+    if (cap > 0)
+        data = (T*)mem_alloca(cap * sizeof(T), 8, alloc);
   }
 
   void kill() {
-    mem_free(data, allocator);
-		length = 0;
-		capacity = 0;
+    mem_free(data, alloc);
+		len = 0;
+		cap = 0;
   }
   void print() {
-    for(size_t i = 0; i < length; ++i) {
+    for(size_t i = 0; i < len; ++i) {
       std::cout << data[i] << '\n';
     }
   }
-  void zero(T t) {
-    for(size_t i = 0; i < capacity; ++i) {
-      push(t);
+    void zero() {
+        size_t tmp = len;
+        T t = {};
+        for(size_t i = len; i < cap; ++i) {
+          push(t);
+        }
+        len = tmp;
     }
+  void grow_zero(size_t count) {
+    grow(count);
+    zero();
   }
   PopResult<T> pop() {
-    if (!length) {
+    if (!len) {
 			PopResult<T> none;
 			none.some = false;
 			return none;
 		}
-    --length; 
-		return PopResult<T> { true, data[length] };
+    --len; 
+		return PopResult<T> { true, data[len] };
   }
   void push(T t) {
-    if (capacity == length)
+    if (cap == len)
       grow();
-    data[length] = t;
-    ++length;
+    data[len] = t;
+    ++len;
   }
   void resize(size_t size) {
-    data = reinterpret_cast<T*>(mem_realloc(size * sizeof(T), length, data, 8, allocator));
+    data = reinterpret_cast<T*>(mem_realloc(size * sizeof(T), len, data, 8, alloc));
   }
   void grow(size_t size) {
-    capacity *= size;
-    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8, allocator);
-    mem_cpy(new_data, data, length * sizeof(T));
-    mem_free(data, allocator);
+    cap += size;
+    T* new_data = (T*)mem_alloca(cap * sizeof(T), 8, alloc);
+    mem_cpy(new_data, data, len * sizeof(T));
+    mem_free(data, alloc);
     data = new_data;
   }
   void grow() {
-    capacity *= 2;
-    T* new_data = (T*)mem_alloca(capacity * sizeof(T), 8, allocator);
-    mem_cpy(new_data, data, length * sizeof(T));
-    mem_free(data, allocator);
+    cap *= 2;
+    T* new_data = (T*)mem_alloca(cap * sizeof(T), 8, alloc);
+    mem_cpy(new_data, data, len * sizeof(T));
+    mem_free(data, alloc);
     data = new_data;
   }
   T& operator[](size_t i) {
-    if (i >= length) {
+    if (i >= len) {
       std::cerr << "OUT OF BOUNDS ACCESS ON VEC " << data << "\n";
       exit(-1);
     }

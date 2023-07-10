@@ -1,5 +1,13 @@
-1. Clean main.cpp: - not vital
 
+
+
+0. Current Task: New Pipeline Class!
+    Setup the new MonoPl (MonolithPipeline) to use the DescBuffer class.
+
+
+
+
+/////////// Secondary //////////////////////
 'glTF' should be only used by a higher class which will search a 'models' dir for glTF 
 models, load them, and then serialize them. Once a model is loaded and serialized, it should be written to a 
 file in its serialized state, so models do not have to re-serialized each runtime - the serialized model is loaded 

@@ -22,7 +22,7 @@ MemoryService *MemoryService::instance() { return &GlobalMemoryService; }
 void MemoryService::init(MemoryConfig* config) {
   std::cout << "Initializing memory service, allocating " << config->size_heap << " bytes to system allocator...\n";
   system_allocator.init(config->size_heap);
-  std::cout << "Initializing memory service, allocating " << config->size_linear << " bytes to scrath allocator...\n";
+  std::cout << "Initializing memory service, allocating " << config->size_linear << " bytes to scratch allocator...\n";
   scratch_allocator.init(config->size_linear);
 }
 void MemoryService::shutdown() { 
@@ -113,9 +113,6 @@ void LinearAllocator::init(size_t size) {
 }
 void *LinearAllocator::allocate(size_t size, size_t alignment) {
   size_t pad = mem_align(size, alignment) - size;
-#ifdef MEM_STATS
-  stats.alloc(size + pad);
-#endif
   void* ptr = (void*)(mem + alloced + pad);
   alloced += pad + size;
   ABORT(alloced < cap, "Linear Allocator: Overflow");
@@ -123,22 +120,13 @@ void *LinearAllocator::allocate(size_t size, size_t alignment) {
 }
 void LinearAllocator::cut(size_t size) {
   alloced -= size;
-#ifdef MEM_STATS
-  stats.dealloc(size); 
-#endif
 }
 void LinearAllocator::free() {
   alloced = 0;
-#ifdef MEM_STATS 
-  stats.dealloc(stats.alloced);
-#endif
 }
-void LinearAllocator::kill() { 
-  std::cout << "Linear allocator freed\n";
-#ifdef MEM_STATS
-  std::cout << "        Remaining Allocation size in LinearAllocator: " << stats.alloced << '\n';
-  stats.alloced = 0;
-#endif
+void LinearAllocator::kill() {  
+  std::cout << "    Linear allocator freed:\n";
+  std::cout << "        Remaining Alloced size in LinearAllocator: " << alloced << '\n';
   cap = 0; 
   DEBUG_ABORT(mem, "Linear Allocator: free nullptr");
   ::free((void*)mem);

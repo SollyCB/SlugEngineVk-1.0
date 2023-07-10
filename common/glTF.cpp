@@ -49,6 +49,8 @@ void glTF::fill(Json json)
     materials.fill(json);
     cameras.fill(json);
     animations.fill(json);
+
+    std::cout << "Alloced " <<  MemoryService::instance()->scratch_allocator.alloced << '\n';
 }
 
 namespace {

@@ -37,6 +37,7 @@ void Window::poll() {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
         input = false;
+        first_mouse = true;
     }
     if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS) {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -87,6 +88,12 @@ void Window::cursor_position_callback(GLFWwindow *window, double xpos,
         float yoffset = ypos - ptr->ypos;
         ptr->xpos = xpos;
         ptr->ypos = ypos;
+
+        if (ptr->first_mouse) {
+            ptr->first_mouse = false;
+            xoffset = 0;
+            yoffset = 0;
+        }
 
         ptr->camera->look(xoffset, yoffset);
     }

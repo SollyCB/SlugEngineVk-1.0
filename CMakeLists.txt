@@ -32,6 +32,7 @@ set(GCC_COVERAGE_LINK_FLAGS
 set(SOURCE_FILES "main.cpp"
     "Engine.cpp"
     "Window.cpp"
+    "FeaturesExtensions.cpp"
 
     "common/Allocator.cpp"
     "common/VulkanErrors.cpp"
@@ -41,6 +42,7 @@ set(SOURCE_FILES "main.cpp"
     "common/String.cpp"
     "common/glTF.cpp"
     "common/Image.cpp"
+    "common/Spirv.cpp"
 
     "external/tlsf.cpp"
     "external/vk_mem_alloc.cpp"

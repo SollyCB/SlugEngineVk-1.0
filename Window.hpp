@@ -12,6 +12,7 @@ namespace Sol {
 struct Window {
     static Window *instance();
     Camera *camera = Camera::instance();
+    bool first_mouse = true;
 
     int width = WIDTH;
     int height = HEIGHT;

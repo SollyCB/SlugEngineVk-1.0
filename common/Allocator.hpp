@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 #include "tlsf.h"
 
@@ -27,15 +28,6 @@ struct MemoryStatsHeap {
       allocated_bytes += a;
       ++allocation_count;
     }
-  }
-};
-struct MemoryStatsLinear {
-  size_t alloced = 0;
-  void alloc(size_t s) {
-    alloced += s;
-  }
-  void dealloc(size_t s) {
-    alloced -= s;
   }
 };
 static std::vector<void*> Global_Allocation_Tracker;
@@ -84,9 +76,6 @@ struct LinearAllocator : public Allocator {
   void *allocate(size_t size, size_t alignment) override;
   void *reallocate(size_t size, size_t cpy_size, void* ptr, size_t alignment) override;
   void deallocate(void* ptr) override; 
-#ifdef MEM_STATS
-  MemoryStatsLinear stats;
-#endif
 };
 
 struct MemoryConfig {

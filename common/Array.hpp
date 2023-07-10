@@ -16,12 +16,25 @@ Array<T> get(size_t size, size_t alignment) {
     a.init(size, alignment);
     return a;
 }
+Array<T> get(size_t size, size_t alignment, Allocator *alloc_) {
+    Array a;
+    a.init(size, alignment, alloc_);
+    return a;
+}
+void init(size_t size, size_t alignment, Allocator *alloc_) {
+  cap = size;
+  alloc = alloc_;
+  mem = (T*)mem_alloca(size * sizeof(T), alignment, alloc);
+}
 void init(size_t size, size_t alignment) {
   cap = size;
   mem = (T*)mem_alloca(size * sizeof(T), alignment, alloc);
 }
 void reset() {
   len = 0;
+}
+void kill() {
+    mem_free(mem, alloc);
 }
 
 void push(T t) {
@@ -34,6 +47,11 @@ T pop() {
     return NULL;
   --len;
   return mem[len];
+}
+void fill_zero() {
+    T t;
+    for(size_t i = len; i < cap; ++i)
+        push(t);
 }
 void swap_last(size_t i) {
   ABORT(i < len, "Out of bounds access on Array<T>");
