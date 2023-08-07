@@ -23,11 +23,11 @@ namespace Sol {
 #define MAX_FRAME_COUNT 2
 
 namespace PFN {
-void vkGetDescriptorSetLayoutBindingOffsetEXT(VkDevice device, VkDescriptorSetLayout layout,
-                                              uint32_t binding, VkDeviceSize *pOffset);
-void vkCmdBindDescriptorBuffersEXT(VkDevice device, VkCommandBuffer commandBuffer,
-                                   uint32_t bufferCount,
-                                   const VkDescriptorBufferBindingInfoEXT *pBindingInfos);
+void vkGetDescriptorSetLayoutBindingOffsetEXT(
+    VkDevice device, VkDescriptorSetLayout layout, uint32_t binding, VkDeviceSize *pOffset);
+void vkCmdBindDescriptorBuffersEXT(
+    VkDevice device, VkCommandBuffer commandBuffer, uint32_t bufferCount,
+    const VkDescriptorBufferBindingInfoEXT *pBindingInfos);
 } // namespace PFN
 
 struct SwapchainSettings {
@@ -48,15 +48,13 @@ struct Vertex {
     glm::vec2 position;
     glm::vec3 color;
 
-    static void get_binding_description(VkVertexInputBindingDescription *desc)
-    {
+    static void get_binding_description(VkVertexInputBindingDescription *desc) {
         *desc = {};
         desc->binding = 0;
         desc->stride = sizeof(Vertex);
         desc->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     }
-    static void get_attribute_description(VkVertexInputAttributeDescription *desc)
-    {
+    static void get_attribute_description(VkVertexInputAttributeDescription *desc) {
         desc[0] = {};
         desc[0].binding = 0;
         desc[0].location = 0;
@@ -149,8 +147,7 @@ struct Cmd {
 
     VkCommandBuffer *buf_alloc(uint32_t count, bool primary);
 
-    struct InheritanceInfo {
-    };
+    struct InheritanceInfo {};
     static VkResult begin(VkCommandBuffer cmd, bool one_time, InheritanceInfo *inheritance);
     static VkResult end(VkCommandBuffer cmd);
 
@@ -191,8 +188,8 @@ struct DescLayout {
     Array<size_t> binding_offsets;
     uint32_t binding_count = 0;
 
-    static DescLayout get(VkDevice device, uint32_t binding_count,
-                          VkDescriptorSetLayoutBinding *bindings);
+    static DescLayout
+    get(VkDevice device, uint32_t binding_count, VkDescriptorSetLayoutBinding *bindings);
     void kill(VkDevice device);
 };
 
@@ -318,8 +315,30 @@ struct MonoPl {
     };
     static MonoPl get(VkDevice device, CreateInfo *args);
     void kill();
-};
 
+  private:
+    static void mono_pl_shader_modules(
+        VkDevice device, uint32_t count, VkShaderModule *modules, size_t *code_sizes,
+        const uint32_t **shader_code);
+    static void mono_pl_shader_stages(
+        VkDevice device, uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
+        const char **shader_files);
+    static VkPipelineVertexInputStateCreateInfo
+    mono_pl_input_state(MonoPl::CreateInfo::VertInputInfo *info);
+    static VkPipelineInputAssemblyStateCreateInfo
+    mono_pl_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info);
+    static VkPipelineViewportStateCreateInfo
+    mono_pl_viewport(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor);
+    static VkPipelineRasterizationStateCreateInfo
+    mono_pl_rasterization_state(MonoPl::CreateInfo::RasterInfo *info);
+    static VkPipelineMultisampleStateCreateInfo
+    mono_pl_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info);
+    static VkPipelineDepthStencilStateCreateInfo
+    mono_pl_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info);
+    static VkPipelineColorBlendStateCreateInfo mono_pl_blend_state(
+        MonoPl::CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments);
+    static VkPipelineDynamicStateCreateInfo mono_pl_dyn_state(MonoPl::CreateInfo::DynInfo *info);
+};
 
 struct Engine {
   public:
@@ -365,9 +384,9 @@ struct Engine {
     VmaAllocator vma_allocator;
     void init_allocator();
     void kill_allocator();
-    VkResult alloc_buffer(size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags pref_flags,
-                          VkMemoryPropertyFlags req_flags, VmaAllocationCreateFlags vma_flags,
-                          OldGpuBuffer *buf);
+    VkResult alloc_buffer(
+        size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags pref_flags,
+        VkMemoryPropertyFlags req_flags, VmaAllocationCreateFlags vma_flags, OldGpuBuffer *buf);
     void free_buffer(OldGpuBuffer buf);
     StagingBuffer staging_buf;
     void alloc_staging_buf(size_t size, void *data);
@@ -468,24 +487,22 @@ struct Engine {
     // Textures
     // TODO:(Sol):
 
-
 // Debug //////////////////////
 #if V_LAYERS
     VkDebugUtilsMessengerEXT debug_messenger;
     void init_debug();
     void kill_debug();
     static void populate_debug_create_info(VkDebugUtilsMessengerCreateInfoEXT *create_info);
-    static VKAPI_ATTR VkBool32 VKAPI_CALL
-    debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                   VkDebugUtilsMessageTypeFlagsEXT messageType,
-                   const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData);
-    VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance,
-                                            const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
-                                            const VkAllocationCallbacks *pAllocator,
-                                            VkDebugUtilsMessengerEXT *pDebugMessenger);
-    void vkDestroyDebugUtilsMessengerEXT(VkInstance instance,
-                                         VkDebugUtilsMessengerEXT debugMessenger,
-                                         const VkAllocationCallbacks *pAllocator);
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData);
+    VkResult vkCreateDebugUtilsMessengerEXT(
+        VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
+        const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger);
+    void vkDestroyDebugUtilsMessengerEXT(
+        VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
+        const VkAllocationCallbacks *pAllocator);
 #endif // V_LAYERS
 
 }; // struct Engine

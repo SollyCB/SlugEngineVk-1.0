@@ -1,4 +1,3 @@
-#include "Allocator.hpp"
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -6,6 +5,7 @@
 #include <sys/types.h>
 #include <system_error>
 #include <type_traits>
+#include <iostream>
 
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
@@ -15,9 +15,11 @@
 #include <vulkan/vulkan_core.h>
 
 #include "Engine.hpp"
+#include "Allocator.hpp"
+#include "Assert.hpp"
 #include "FeaturesExtensions.hpp"
 #include "File.hpp"
-#include "Spirv.hpp"
+#include "Spv.hpp"
 #include "VulkanErrors.hpp"
 
 #include <GLFW/glfw3.h>
@@ -485,8 +487,8 @@ void Engine::get_swapchain_settings()
         }
     }
 
-    DEBUG_ABORT(mode, "Bad swapchain settings (present mode)");
-    DEBUG_ABORT(format_check, "Bad swapchain settings (format)");
+    DEBUG_ASSERT(mode, "Bad swapchain settings (present mode)");
+    DEBUG_ASSERT(format_check, "Bad swapchain settings (format)");
 }
 void Engine::get_swapchain_images()
 {
@@ -867,7 +869,7 @@ void Engine::kill_pipeline()
 VkShaderModule Engine::create_shader_module(const char *file_name)
 {
     size_t code_size;
-    const uint32_t *p_code = (const uint32_t *)File::read_spirv(&code_size, file_name, alloc_heap);
+    const uint32_t *p_code = (const uint32_t *)File::read_spv(&code_size, file_name, alloc_heap);
     VkShaderModuleCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = code_size,
@@ -914,8 +916,7 @@ VkDeviceAddress GpuBuffer::get_address(VkDevice device)
 
 
 // *NewPL ////////////////////
-namespace {
-static void mono_pl_shader_modules(VkDevice device, uint32_t count, VkShaderModule *modules,
+void MonoPl::mono_pl_shader_modules(VkDevice device, uint32_t count, VkShaderModule *modules,
                                    size_t *code_sizes, const uint32_t **shader_code)
 {
     VkShaderModuleCreateInfo info = {};
@@ -929,7 +930,7 @@ static void mono_pl_shader_modules(VkDevice device, uint32_t count, VkShaderModu
         DEBUG_OBJ_CREATION(vkCreateShaderModule, check);
     }
 }
-static void mono_pl_shader_stages(VkDevice device, uint32_t stage_count,
+void MonoPl::mono_pl_shader_stages(VkDevice device, uint32_t stage_count,
                                   VkPipelineShaderStageCreateInfo *stage_infos,
                                   const char **shader_files)
 {
@@ -937,24 +938,32 @@ static void mono_pl_shader_stages(VkDevice device, uint32_t stage_count,
     size_t code_sizes[stage_count];
     for (int i = 0; i < stage_count; ++i) {
         shader_code[i] = reinterpret_cast<const uint32_t *>(
-            File::read_spirv(&code_sizes[i], shader_files[i], scratch_allocator));
+            File::read_spv(&code_sizes[i], shader_files[i], scratch_allocator));
     }
 
     VkShaderModule modules[stage_count];
     mono_pl_shader_modules(device, stage_count, modules, code_sizes, shader_code);
 
+    size_t to_cut = 0;
+    for(int i = 0; i < stage_count; ++i)
+        to_cut += code_sizes[i];
+    scratch_allocator->cut(to_cut);
+
     for (int i = 0; i < stage_count; ++i) {
+        bool ok;
+        Spv spv = Spv::parse(code_sizes[i], shader_code[i], &ok);
+        DEBUG_ASSERT(ok, "fail parse spirv");
         stage_infos[i] = {};
         stage_infos[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_infos[i].stage = Spirv::parse(code_sizes[i], shader_code[i]);
-        ;
+        stage_infos[i].stage = spv.stage;
         stage_infos[i].module = modules[i];
         stage_infos[i].pName = "main";
+        spv.kill();
     }
 }
 
-static VkPipelineVertexInputStateCreateInfo
-mono_pl_input_state(MonoPl::CreateInfo::VertInputInfo *info)
+VkPipelineVertexInputStateCreateInfo
+MonoPl::mono_pl_input_state(CreateInfo::VertInputInfo *info)
 {
     for (uint32_t i = 0; i < info->bind_desc_count; ++i) {
         info->bind_descs[i] = {};
@@ -981,8 +990,8 @@ mono_pl_input_state(MonoPl::CreateInfo::VertInputInfo *info)
     return vert_input_info;
 }
 
-static VkPipelineInputAssemblyStateCreateInfo
-mono_pl_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info)
+VkPipelineInputAssemblyStateCreateInfo
+MonoPl::mono_pl_assembly_state(CreateInfo::AssemblyInfo *info)
 {
     VkPipelineInputAssemblyStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -990,42 +999,36 @@ mono_pl_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info)
     ret.primitiveRestartEnable = info->prim_restart;
     return ret;
 }
-
-struct ViewportInfo {
-    VkExtent2D *extent;
-    VkViewport viewport;
-    VkRect2D scissor;
-};
-static VkPipelineViewportStateCreateInfo mono_pl_viewport(ViewportInfo *info)
+VkPipelineViewportStateCreateInfo MonoPl::mono_pl_viewport(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor)
 {
-    float width = static_cast<float>(info->extent->width);
-    float height = static_cast<float>(info->extent->height);
-    info->viewport = {};
-    info->viewport.x = 0.0f;
-    info->viewport.y = 0.0f;
-    info->viewport.width = width;
-    info->viewport.height = height;
-    info->viewport.minDepth = 0.0f;
-    info->viewport.maxDepth = 1.0f;
+    float width = static_cast<float>(extent->width);
+    float height = static_cast<float>(extent->height);
+    *viewport = {};
+    viewport->x = 0.0f;
+    viewport->y = 0.0f;
+    viewport->width = width;
+    viewport->height = height;
+    viewport->minDepth = 0.0f;
+    viewport->maxDepth = 1.0f;
 
-    info->scissor = {};
-    info->scissor.offset = {0, 0};
-    info->scissor.extent = *info->extent;
+    *scissor = {};
+    scissor->offset = {0, 0};
+    scissor->extent = *extent;
 
     VkPipelineViewportStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     ret.viewportCount = 1;
     ret.scissorCount = 1;
-    ret.pViewports = &info->viewport;
-    ret.pScissors = &info->scissor;
+    ret.pViewports = viewport;
+    ret.pScissors = scissor;
 
     return ret;
 }
 
-static VkPipelineRasterizationStateCreateInfo
-mono_pl_rasterization_state(MonoPl::CreateInfo::RasterInfo *info)
+VkPipelineRasterizationStateCreateInfo
+MonoPl::mono_pl_rasterization_state(CreateInfo::RasterInfo *info)
 {
-    using Bools = MonoPl::CreateInfo::RasterInfo::Bools;
+    using Bools = CreateInfo::RasterInfo::Bools;
 
     VkPipelineRasterizationStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -1040,10 +1043,10 @@ mono_pl_rasterization_state(MonoPl::CreateInfo::RasterInfo *info)
     return ret;
 }
 
-static VkPipelineMultisampleStateCreateInfo
-mono_pl_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info)
+VkPipelineMultisampleStateCreateInfo
+MonoPl::mono_pl_multisample_state(CreateInfo::MultiSampleInfo *info)
 {
-    using Bools = MonoPl::CreateInfo::MultiSampleInfo::Bools;
+    using Bools = CreateInfo::MultiSampleInfo::Bools;
 
     VkPipelineMultisampleStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -1058,9 +1061,9 @@ mono_pl_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info)
 }
 
 VkPipelineDepthStencilStateCreateInfo
-mono_pl_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info)
+MonoPl::mono_pl_depth_stencil_state(CreateInfo::DepthStencilInfo *info)
 {
-    using Bools = MonoPl::CreateInfo::DepthStencilInfo::Bools;
+    using Bools = CreateInfo::DepthStencilInfo::Bools;
 
     VkPipelineDepthStencilStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -1082,7 +1085,7 @@ mono_pl_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info)
     return ret;
 }
 
-VkPipelineColorBlendStateCreateInfo mono_pl_blend_state(MonoPl::CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments)
+VkPipelineColorBlendStateCreateInfo MonoPl::mono_pl_blend_state(CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments)
 {
     for (uint32_t i = 0; i < info->attachment_count; ++i) {
         attachments[i] = {};
@@ -1101,7 +1104,7 @@ VkPipelineColorBlendStateCreateInfo mono_pl_blend_state(MonoPl::CreateInfo::Blen
     return ret;
 }
 
-VkPipelineDynamicStateCreateInfo mono_pl_dyn_state(MonoPl::CreateInfo::DynInfo *info) {
+VkPipelineDynamicStateCreateInfo MonoPl::mono_pl_dyn_state(CreateInfo::DynInfo *info) {
     VkPipelineDynamicStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     ret.dynamicStateCount = info->count;
@@ -1109,8 +1112,6 @@ VkPipelineDynamicStateCreateInfo mono_pl_dyn_state(MonoPl::CreateInfo::DynInfo *
 
     return ret;
 }
-
-} // namespace
 
 MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info)
 {
@@ -1134,9 +1135,9 @@ MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info)
         mono_pl_assembly_state(create_info->assembly_info);
 
     // Viewport
-    ViewportInfo viewport_info = {};
-    viewport_info.extent = create_info->viewport_info;
-    VkPipelineViewportStateCreateInfo viewport_state = mono_pl_viewport(&viewport_info);
+    VkViewport viewport_ = {};
+    VkRect2D scissor_ = {};
+    VkPipelineViewportStateCreateInfo viewport_state = mono_pl_viewport(create_info->viewport_info, &viewport_, &scissor_);
 
     // RasterizationState
     VkPipelineRasterizationStateCreateInfo raster_state =
@@ -1170,12 +1171,13 @@ MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info)
     pl_info.pDepthStencilState = &depth_stencil_state;
     pl_info.pColorBlendState = &blend_state;
     pl_info.pDynamicState = &dyn_state;
-    pl_info.renderPass = create_info->renderpass;
+    //pl_info.renderPass = create_info->renderpass;
 
     for (int i = 0; i < create_info->shader_info->stage_count; ++i)
         vkDestroyShaderModule(mono_pl.device, p_stages[i].module, nullptr);
     return mono_pl;
 }
+
 static const char *SHADER_FILES[] = {"shaders/triangle3.vert.spv", "shaders/triangle3.frag.spv"};
 void Engine::mono_pl_init()
 {
@@ -1619,7 +1621,7 @@ void Engine::init_command()
 
     // TODO: : This will break if present and graphics queues have different
     // indices...
-    ABORT(graphics_queue_index == present_queue_index,
+    ASSERT(graphics_queue_index == present_queue_index,
           "Queue families (present and graphics) are not equal");
     for (uint32_t i = 0; i < 2; ++i) {
         VkCommandPoolCreateInfo pool_info = {
@@ -1855,7 +1857,7 @@ void Engine::draw_frame(uint32_t *frame_index)
         return;
 
     default:
-        ABORT(false, "Failed to acquire swapchain image");
+        ASSERT(false, "Failed to acquire swapchain image");
     }
 
     vkResetFences(vk_device, 1, &render_done_fence);
@@ -1898,7 +1900,7 @@ void Engine::draw_frame(uint32_t *frame_index)
     case VK_SUBOPTIMAL_KHR:
         return;
     default:
-        ABORT(false, "Presentation check failed");
+        ASSERT(false, "Presentation check failed");
     }
 }
 
@@ -1931,7 +1933,7 @@ void Engine::init_debug()
     VkResult check =
         vkCreateDebugUtilsMessengerEXT(vk_instance, &debug_create_info, nullptr, &debug_messenger);
 
-    DEBUG_ABORT(check == VK_SUCCESS, "FAILED TO INIT DEBUG MESSENGER (Aborting)...\n");
+    DEBUG_ASSERT(check == VK_SUCCESS, "FAILED TO INIT DEBUG MESSENGER (Aborting)...\n");
 }
 void Engine::kill_debug()
 {

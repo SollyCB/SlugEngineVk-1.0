@@ -1,6 +1,7 @@
 #include "Window.hpp"
-#include "VulkanErrors.hpp"
+#include "Assert.hpp"
 
+#include <iostream>
 #include <GLFW/glfw3.h>
 
 namespace Sol {
@@ -9,14 +10,14 @@ Window *Window::instance() { return &sWindow; }
 
 void Window::init_glfw(void *ptr) {
     if (!glfwInit())
-        ABORT(false, "GLFW init failed");
+        ASSERT(false, "GLFW init failed");
     if (!glfwVulkanSupported())
-        ABORT(false, "GLFW no Vulkan support");
+        ASSERT(false, "GLFW no Vulkan support");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     window = glfwCreateWindow(WIDTH, HEIGHT, "SlugVk", NULL, NULL);
     if (!window)
-        ABORT(false, "GLFW window creation failed");
+        ASSERT(false, "GLFW window creation failed");
 
     camera->width = WIDTH;
     camera->height = HEIGHT;

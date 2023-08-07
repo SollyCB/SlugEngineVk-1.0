@@ -3,15 +3,15 @@
 
 #include "Allocator.hpp"
 #include "File.hpp"
+#include "Assert.hpp"
 
 namespace Sol {
 
-void *File::read_spirv(size_t *byte_count, const char *file_name, Allocator *alloc) {
+const uint32_t *File::read_spv(size_t *byte_count, const char *file_name, Allocator *alloc) {
     FILE *file = fopen(file_name, "r");
 
     if (!file) {
         std::cerr << "FAILED TO READ FILE " << file_name << "!\n";
-        fclose(file);
         return nullptr;
     }
 
@@ -19,11 +19,12 @@ void *File::read_spirv(size_t *byte_count, const char *file_name, Allocator *all
     *byte_count = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    void *buffer = mem_alloca(*byte_count, 4, alloc);
-    fread(buffer, *byte_count, 1, file);
+    void *spv = mem_alloca(*byte_count, 4, alloc);
+    size_t read = fread(spv, 1, *byte_count, file);
+    DEBUG_ASSERT(read == *byte_count, "Failed to read entire file");
     fclose(file);
 
-    return buffer;
+    return reinterpret_cast<const uint32_t*>(spv);
 }
 
 void *File::read_char(size_t *byte_count, const char *file_name, Allocator *alloc) {
@@ -40,7 +41,8 @@ void *File::read_char(size_t *byte_count, const char *file_name, Allocator *allo
     fseek(file, 0, SEEK_SET);
 
     void *buffer = mem_alloca(*byte_count, 1, alloc);
-    fread(buffer, *byte_count, 1, file);
+    size_t read = fread(buffer, 1, *byte_count, file);
+    DEBUG_ASSERT(read == *byte_count, "Failed to read entire file");
     fclose(file);
 
     return buffer;

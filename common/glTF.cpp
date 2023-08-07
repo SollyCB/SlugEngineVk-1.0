@@ -136,10 +136,10 @@ static bool check_joints_weights_count(Array<Mesh::Primitive::Attribute> *attrs)
 void Asset::fill(Json json)
 {
     auto asset = json.find("asset");
-    ABORT(asset != json.end(), "glTF has no 'asset' obj");
+    ASSERT(asset != json.end(), "glTF has no 'asset' obj");
 
     load_string(asset.value(), "version", &version);
-    ABORT(version.str, "glTF asset has no 'version' field");
+    ASSERT(version.str, "glTF asset has no 'version' field");
 
     load_string(asset.value(), "copyright", &copyright);
 }
@@ -320,7 +320,7 @@ void Mesh::Primitive::fill(Json json)
         fill_obj_array(json, "targets", &targets);
 
     bool check = check_joints_weights_count(&attributes);
-    ABORT(check, "Primitive JOINTS_n count != WEIGHTS_n count");
+    ASSERT(check, "Primitive JOINTS_n count != WEIGHTS_n count");
 }
 
 void Mesh::Primitive::Target::fill(Json json)
@@ -483,7 +483,7 @@ void Camera::fill(Json json)
         type = PERSPECTIVE;
     if (strcmp(tmp.cstr(), "orthographic") == 0)
         type = ORTHO;
-    ABORT(type != UNKNOWN, "glTF model camera type must be defined");
+    ASSERT(type != UNKNOWN, "glTF model camera type must be defined");
 
     load_T(json, "aspectRatio", &aspect_ratio);
     load_T(json, "yfov", &yfov);
@@ -498,13 +498,13 @@ void Camera::fill(Json json)
         load_T(json["orthographic"], "zfar", &zfar);
         load_T(json["orthographic"], "znear", &znear);
 
-        ABORT(xmag != INVALID_FLOAT,
+        ASSERT(xmag != INVALID_FLOAT,
               "glTF model Ortho camera must have XMAG defined");
-        ABORT(ymag != INVALID_FLOAT,
+        ASSERT(ymag != INVALID_FLOAT,
               "glTF model Ortho camera must have YMAG defined");
-        ABORT(zfar != INVALID_FLOAT,
+        ASSERT(zfar != INVALID_FLOAT,
               "glTF model Ortho camera must have ZFAR defined");
-        ABORT(znear != INVALID_FLOAT,
+        ASSERT(znear != INVALID_FLOAT,
               "glTF model Ortho camera must have ZNEAR defined");
     }
     if (type == PERSPECTIVE) {
@@ -513,9 +513,9 @@ void Camera::fill(Json json)
         load_T(json["perspective"], "zfar", &zfar);
         load_T(json["perspective"], "znear", &znear);
 
-        ABORT(yfov != INVALID_FLOAT,
+        ASSERT(yfov != INVALID_FLOAT,
               "glTF model Perspective camera must have YFOV defined");
-        ABORT(znear != INVALID_FLOAT,
+        ASSERT(znear != INVALID_FLOAT,
               "glTF model Perspective camera must have ZNEAR defined");
     }
 }

@@ -1,6 +1,7 @@
-#pragma once 
+#pragma once
 #include "Allocator.hpp"
-#include "VulkanErrors.hpp"
+#include "Assert.hpp"
+//#include "VulkanErrors.hpp"
 
 namespace Sol {
 
@@ -10,13 +11,13 @@ struct Array {
   size_t cap = 0;
   size_t len = 0;
   Allocator *alloc = &MemoryService::instance()->scratch_allocator;
-  
-Array<T> get(size_t size, size_t alignment) {
+
+static Array<T> get(size_t size, size_t alignment) {
     Array a;
     a.init(size, alignment);
     return a;
 }
-Array<T> get(size_t size, size_t alignment, Allocator *alloc_) {
+static Array<T> get(size_t size, size_t alignment, Allocator *alloc_) {
     Array a;
     a.init(size, alignment, alloc_);
     return a;
@@ -36,10 +37,24 @@ void reset() {
 void kill() {
     mem_free(mem, alloc);
 }
-
-void push(T t) {
-  ABORT(len < cap, "Push to Array<T> with insufficient capacity");
-  mem[len] = t;
+void push(T &t) {
+  ASSERT(len < cap, "Push to Array<T> with insufficient capacity");
+  mem[len] = std::move(t);
+  ++len;
+}
+void push(const T &t) {
+  ASSERT(len < cap, "Push to Array<T> with insufficient capacity");
+  mem[len] = std::move(t);
+  ++len;
+}
+void push_cpy(T &t) {
+  ASSERT(len < cap, "Push to Array<T> with insufficient capacity");
+  mem[len] = std::move(t);
+  ++len;
+}
+void push_cpy(const T &t) {
+  ASSERT(len < cap, "Push to Array<T> with insufficient capacity");
+  mem[len] = std::move(t);
   ++len;
 }
 T pop() {
@@ -54,21 +69,21 @@ void fill_zero() {
         push(t);
 }
 void swap_last(size_t i) {
-  ABORT(i < len, "Out of bounds access on Array<T>");
+  ASSERT(i < len, "Out of bounds access on Array<T>");
   T tmp = mem[i];
   mem[i] = mem[len - 1];
   mem[len - 1] = tmp;
 }
 void copy_here(T* data, size_t count) {
-  ABORT(cap - len >= count, "Array<T>::copy_here with insufficient size");
+  ASSERT(cap - len >= count, "Array<T>::copy_here with insufficient size");
   mem_cpy(mem + len, data, count * sizeof(T));
   len += count;
 }
 
 T& operator[](size_t i) {
-  ABORT(i < len, "Out of Bounds access on Array<T>");
+  ASSERT(i < len, "Out of Bounds access on Array<T>");
   return mem[i];
 }
 };
 
-} // namespace Sol 
+} // namespace Sol
