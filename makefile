@@ -6,7 +6,7 @@ all:
 
 .PHONY: test
 test:
-	cmake . $(TEST) -B build && make -C build -j 2 && cp build/compile_commands.json . && ./build/TestAll
+	cmake . $(TEST) -B build && make -C build -j 2 && cp build/compile_commands.json . && ./build/TestTop
 
 
 run: all
