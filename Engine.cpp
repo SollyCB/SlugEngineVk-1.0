@@ -1,47 +1,31 @@
-#include <cmath>
-#include <cstdint>
-#include <exception>
-#include <functional>
-#include <sys/types.h>
-#include <system_error>
-#include <type_traits>
 #include <iostream>
 
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/vector_relational.hpp>
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.h>
 
 #include "Engine.hpp"
-#include "Allocator.hpp"
-#include "Assert.hpp"
+#include "VulkanErrors.hpp"
 #include "FeaturesExtensions.hpp"
+
+#include "Basic.hpp"
 #include "File.hpp"
 #include "Spv.hpp"
-#include "VulkanErrors.hpp"
 
 #include <GLFW/glfw3.h>
-#include <iostream>
 
 namespace Sol {
 
 static Allocator *heap_allocator = &MemoryService::instance()->system_allocator;
 static LinearAllocator *scratch_allocator = &MemoryService::instance()->scratch_allocator;
 
-static size_t align(size_t size, size_t alignment)
-{
-    const size_t alignment_mask = alignment - 1;
-    return (size + alignment_mask) & ~alignment_mask;
-}
-
 static Engine Slug;
 Engine *Engine::instance() { return &Slug; }
 
 // *Public ////////////////
-void Engine::init()
-{
+void Engine::init() {
     /*
      *  This could be called from "main()", but as it is only the rendering
      * engine that currently requires it, it can stay here. If I find that there
@@ -68,8 +52,7 @@ void Engine::init()
     init_command();
     init_sync();
 }
-void Engine::kill()
-{
+void Engine::kill() {
     kill_sync();
     kill_command();
     kill_pipeline();
@@ -87,8 +70,7 @@ void Engine::kill()
     kill_instance();
 }
 
-void Engine::init2()
-{
+void Engine::init2() {
     std::cout << "Init2 Start\n";
     sync_init();
     std::cout << "Sync Init\n";
@@ -101,24 +83,26 @@ void Engine::init2()
 
     std::cout << "Init 2 End\n";
 }
-void Engine::kill2()
-{
+void Engine::kill2() {
     std::cout << "Kill2 Start\n";
+    mono_pl.kill();
+    std::cout << "Kill2 mono_pl\n";
     sync_kill();
+    std::cout << "Kill2 sync\n";
     command.kill();
+    std::cout << "Kill2 command\n";
     desc_buf.kill();
+    std::cout << "Kill2 descbuf\n";
     std::cout << "Kill2 End\n";
 }
 
-void Engine::run()
-{
+void Engine::run() {
     render_loop();
     init2();
     kill2();
 }
 // *Instance ////////////////////
-void Engine::init_instance()
-{
+void Engine::init_instance() {
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pApplicationName = "VK Engine";
@@ -132,12 +116,6 @@ void Engine::init_instance()
     instance_info.pApplicationInfo = &app_info;
     instance_info.flags = 0x0;
 
-    /*
-     * Torvalds discourages in the Kernel style guide conditional compilation in
-     * source code (rather than header) files, But because of the way vulkan
-     * works (its different software to kernel code), and for the fact that this
-     * is tiny and trivially obvious, I am ok with it...
-     */
 #if V_LAYERS
     VkDebugUtilsMessengerCreateInfoEXT debug_create_info;
     populate_debug_create_info(&debug_create_info);
@@ -176,16 +154,14 @@ void Engine::init_instance()
 void Engine::kill_instance() { vkDestroyInstance(vk_instance, nullptr); }
 
 // *Surface //////////////////
-void Engine::init_surface()
-{
+void Engine::init_surface() {
     auto check = glfwCreateWindowSurface(vk_instance, window->window, NULL, &vk_surface);
     DEBUG_OBJ_CREATION(glfwCreateWindowSurface, check);
 }
 void Engine::kill_surface() { vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr); }
 
 // *Device ////////////////////
-void Engine::init_device()
-{
+void Engine::init_device() {
     choose_device();
 
     uint32_t queue_count;
@@ -240,8 +216,8 @@ void Engine::init_device()
     vkGetDeviceQueue(vk_device, present_queue_index, 0, &vk_present_queue);
 }
 void Engine::kill_device() { vkDestroyDevice(vk_device, nullptr); }
-void Engine::choose_device()
-{
+
+void Engine::choose_device() {
     uint32_t count;
     vkEnumeratePhysicalDevices(vk_instance, &count, nullptr);
     VkPhysicalDevice devices[count];
@@ -281,8 +257,7 @@ void Engine::choose_device()
 
 
 // *Allocator /////////////////////////
-void Engine::init_allocator()
-{
+void Engine::init_allocator() {
     VmaVulkanFunctions vulkanFunctions = {};
     vulkanFunctions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
     vulkanFunctions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
@@ -298,15 +273,13 @@ void Engine::init_allocator()
     auto check = vmaCreateAllocator(&allocatorCreateInfo, &vma_allocator);
     DEBUG_OBJ_CREATION(vmaCreateAllocator, check);
 }
-void Engine::kill_allocator()
-{
+void Engine::kill_allocator() {
     free_buffer(vert_buf);
     vmaDestroyAllocator(vma_allocator);
 }
-VkResult Engine::alloc_buffer(size_t size, VkBufferUsageFlags usage,
-                              VkMemoryPropertyFlags pref_flags, VkMemoryPropertyFlags req_flags,
-                              VmaAllocationCreateFlags vma_flags, OldGpuBuffer *buf)
-{
+VkResult Engine::alloc_buffer(
+    size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags pref_flags,
+    VkMemoryPropertyFlags req_flags, VmaAllocationCreateFlags vma_flags, OldGpuBuffer *buf) {
     VkBufferCreateInfo bufCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufCreateInfo.size = size;
     bufCreateInfo.usage = usage;
@@ -317,8 +290,8 @@ VkResult Engine::alloc_buffer(size_t size, VkBufferUsageFlags usage,
     allocCreateInfo.preferredFlags = pref_flags;
     allocCreateInfo.flags = vma_flags;
 
-    auto check = vmaCreateBuffer(vma_allocator, &bufCreateInfo, &allocCreateInfo, &buf->buf,
-                                 &buf->alloc, &buf->alloc_info);
+    auto check = vmaCreateBuffer(
+        vma_allocator, &bufCreateInfo, &allocCreateInfo, &buf->buf, &buf->alloc, &buf->alloc_info);
 
     DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
 
@@ -330,8 +303,7 @@ void Engine::free_buffer(OldGpuBuffer buf) { vmaDestroyBuffer(vma_allocator, buf
 VertexBuffer::~VertexBuffer() {}
 // *StagingBuffer ///////////////////
 StagingBuffer::~StagingBuffer() {}
-void Engine::alloc_staging_buf(size_t size, void *data)
-{
+void Engine::alloc_staging_buf(size_t size, void *data) {
     VkBufferCreateInfo bufCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufCreateInfo.size = size;
     bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -341,14 +313,14 @@ void Engine::alloc_staging_buf(size_t size, void *data)
     allocCreateInfo.flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-    auto check = vmaCreateBuffer(vma_allocator, &bufCreateInfo, &allocCreateInfo, &staging_buf.buf,
-                                 &staging_buf.alloc, &staging_buf.alloc_info);
+    auto check = vmaCreateBuffer(
+        vma_allocator, &bufCreateInfo, &allocCreateInfo, &staging_buf.buf, &staging_buf.alloc,
+        &staging_buf.alloc_info);
     DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
 
     memcpy(staging_buf.alloc_info.pMappedData, data, size);
 }
-void Engine::alloc_vert_buf(size_t size)
-{
+void Engine::alloc_vert_buf(size_t size) {
     VkBufferCreateInfo bufCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufCreateInfo.size = size;
     bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
@@ -359,15 +331,15 @@ void Engine::alloc_vert_buf(size_t size)
     allocCreateInfo.flags = 0x0;
     allocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    auto check = vmaCreateBuffer(vma_allocator, &bufCreateInfo, &allocCreateInfo, &vert_buf.buf,
-                                 &vert_buf.alloc, &vert_buf.alloc_info);
+    auto check = vmaCreateBuffer(
+        vma_allocator, &bufCreateInfo, &allocCreateInfo, &vert_buf.buf, &vert_buf.alloc,
+        &vert_buf.alloc_info);
 
     DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
 }
 
 // *UBOs /////////////////////
-void Engine::alloc_ubos(size_t size)
-{
+void Engine::alloc_ubos(size_t size) {
     ubos.len = MAX_FRAME_COUNT;
     for (int i = 0; i < MAX_FRAME_COUNT; ++i) {
         VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -380,19 +352,18 @@ void Engine::alloc_ubos(size_t size)
                           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
-        auto check = vmaCreateBuffer(vma_allocator, &bufferInfo, &allocInfo, &ubos[i].buf,
-                                     &ubos[i].alloc, &ubos[i].alloc_info);
+        auto check = vmaCreateBuffer(
+            vma_allocator, &bufferInfo, &allocInfo, &ubos[i].buf, &ubos[i].alloc,
+            &ubos[i].alloc_info);
         DEBUG_OBJ_CREATION(vmaCreateBuffer, check);
     }
 }
-void Engine::kill_ubos()
-{
+void Engine::kill_ubos() {
     for (int i = 0; i < ubos.len; ++i)
         vmaDestroyBuffer(vma_allocator, ubos[i].buf, ubos[i].alloc);
     ubos.kill();
 }
-void Engine::update_ubo(uint32_t frame_index)
-{
+void Engine::update_ubo(uint32_t frame_index) {
     static auto startTime = std::chrono::steady_clock::now();
 
     auto currentTime = std::chrono::steady_clock::now();
@@ -410,8 +381,7 @@ void Engine::update_ubo(uint32_t frame_index)
 }
 
 // *Swapchain /////////////////////////
-void Engine::init_swapchain()
-{
+void Engine::init_swapchain() {
     get_swapchain_settings();
 
     VkSwapchainCreateInfoKHR info = {
@@ -441,16 +411,14 @@ void Engine::init_swapchain()
     get_swapchain_images();
     get_swapchain_image_views();
 }
-void Engine::kill_swapchain()
-{
+void Engine::kill_swapchain() {
     kill_swapchain_image_views();
     vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
     swapchain_image_views.kill();
     vk_framebuffers.kill();
     swapchain_images.kill();
 }
-void Engine::get_swapchain_settings()
-{
+void Engine::get_swapchain_settings() {
     VkSurfaceCapabilitiesKHR capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &capabilities);
     swapchain_settings.transform = capabilities.currentTransform;
@@ -490,16 +458,14 @@ void Engine::get_swapchain_settings()
     DEBUG_ASSERT(mode, "Bad swapchain settings (present mode)");
     DEBUG_ASSERT(format_check, "Bad swapchain settings (format)");
 }
-void Engine::get_swapchain_images()
-{
+void Engine::get_swapchain_images() {
     uint32_t image_count;
     vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, nullptr);
     swapchain_images.resize(image_count);
     vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, swapchain_images.data);
     swapchain_images.len = image_count;
 }
-void Engine::get_swapchain_image_views()
-{
+void Engine::get_swapchain_image_views() {
     swapchain_image_views.len = swapchain_images.len;
     for (uint32_t i = 0; i < swapchain_image_views.len; ++i) {
         VkImageViewCreateInfo info = {
@@ -527,13 +493,11 @@ void Engine::get_swapchain_image_views()
         DEBUG_OBJ_CREATION(vkCreateImageView, check);
     }
 }
-void Engine::kill_swapchain_image_views()
-{
+void Engine::kill_swapchain_image_views() {
     for (int i = 0; i < swapchain_image_views.len; ++i)
         vkDestroyImageView(vk_device, swapchain_image_views[i], nullptr);
 }
-void Engine::resize_swapchain()
-{
+void Engine::resize_swapchain() {
     VkSwapchainKHR old_swapchain = vk_swapchain;
 
     kill_swapchain_image_views();
@@ -571,8 +535,7 @@ void Engine::resize_swapchain()
 
 
 // *Viewport //////////////////
-VkViewport Engine::get_viewport()
-{
+VkViewport Engine::get_viewport() {
     return {
         .x = 0.0f,
         .y = 0.0f,
@@ -582,8 +545,7 @@ VkViewport Engine::get_viewport()
         .maxDepth = 1.0f,
     };
 }
-VkRect2D Engine::get_scissor()
-{
+VkRect2D Engine::get_scissor() {
     return {
         .offset = {0, 0},
         .extent = swapchain_settings.extent,
@@ -592,8 +554,7 @@ VkRect2D Engine::get_scissor()
 
 
 // *Renderpass ////////////////
-void Engine::init_renderpass()
-{
+void Engine::init_renderpass() {
     VkAttachmentDescription attachment_description = {
         .format = swapchain_settings.format.format,
         .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -636,8 +597,7 @@ void Engine::kill_renderpass() { vkDestroyRenderPass(vk_device, vk_renderpass, n
 
 
 // *Framebuffer
-void Engine::init_framebuffers()
-{
+void Engine::init_framebuffers() {
     vk_framebuffers.len = swapchain_image_views.len;
 
     for (uint32_t i = 0; i < swapchain_image_views.len; ++i) {
@@ -654,21 +614,18 @@ void Engine::init_framebuffers()
         DEBUG_OBJ_CREATION(vkCreateFramebuffer, check);
     }
 }
-void Engine::kill_framebuffers()
-{
+void Engine::kill_framebuffers() {
     for (int i = 0; i < vk_framebuffers.len; ++i)
         vkDestroyFramebuffer(vk_device, vk_framebuffers[i], nullptr);
 }
-void Engine::resize_framebuffers()
-{
+void Engine::resize_framebuffers() {
     kill_framebuffers();
     init_framebuffers();
 }
 
 
 // *Descriptors
-void Engine::init_desc_pool()
-{
+void Engine::init_desc_pool() {
     VkDescriptorPoolSize pool_size = {};
     pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     pool_size.descriptorCount = MAX_FRAME_COUNT;
@@ -683,8 +640,7 @@ void Engine::init_desc_pool()
     DEBUG_OBJ_CREATION(vkCreateDescriptorPool, check);
 }
 void Engine::kill_desc_pool() { vkDestroyDescriptorPool(vk_device, desc_pool, nullptr); }
-void Engine::init_desc_set_layout_old()
-{
+void Engine::init_desc_set_layout_old() {
 #if 0
     ubos.init(MAX_FRAME_COUNT);
     ubos.length = MAX_FRAME_COUNT;
@@ -734,16 +690,14 @@ void Engine::init_desc_set_layout_old()
         vkUpdateDescriptorSets(vk_device, 1, &desc_write, 0, nullptr);
     }
 }
-void Engine::kill_desc_set_layout_old()
-{
+void Engine::kill_desc_set_layout_old() {
     vkDestroyDescriptorSetLayout(vk_device, vk_desc_set_layout, nullptr);
     kill_ubos();
 }
 
 
 // *Pipeline ///////////////////////
-void Engine::init_pipeline()
-{
+void Engine::init_pipeline() {
     VkShaderModule vertex_module = create_shader_module("shaders/triangle3.vert.spv");
     VkShaderModule fragment_module = create_shader_module("shaders/triangle3.frag.spv");
     VkPipelineShaderStageCreateInfo stages[] = {
@@ -854,20 +808,18 @@ void Engine::init_pipeline()
         .subpass = 0,
     };
 
-    auto check_pipeline = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &pipeline_info,
-                                                    nullptr, &vk_pipeline);
+    auto check_pipeline = vkCreateGraphicsPipelines(
+        vk_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
     DEBUG_OBJ_CREATION(vkCreateGraphicsPipelines, check_pipeline);
 
     vkDestroyShaderModule(vk_device, vertex_module, nullptr);
     vkDestroyShaderModule(vk_device, fragment_module, nullptr);
 }
-void Engine::kill_pipeline()
-{
+void Engine::kill_pipeline() {
     vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
     vkDestroyPipelineLayout(vk_device, vk_layout, nullptr);
 }
-VkShaderModule Engine::create_shader_module(const char *file_name)
-{
+VkShaderModule Engine::create_shader_module(const char *file_name) {
     size_t code_size;
     const uint32_t *p_code = (const uint32_t *)File::read_spv(&code_size, file_name, alloc_heap);
     VkShaderModuleCreateInfo create_info = {
@@ -886,8 +838,7 @@ VkShaderModule Engine::create_shader_module(const char *file_name)
 // *GpuBuffer //////////////////
 void GpuBuffer::kill() { vmaDestroyBuffer(vma, buf, alloc); }
 
-GpuBuffer GpuBuffer::get(VmaAllocator vma, CreateInfo *args)
-{
+GpuBuffer GpuBuffer::get(VmaAllocator vma, CreateInfo *args) {
     VkBufferCreateInfo buf_info = {};
     buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buf_info.size = args->size;
@@ -906,8 +857,7 @@ GpuBuffer GpuBuffer::get(VmaAllocator vma, CreateInfo *args)
     ret.vma = vma;
     return ret;
 }
-VkDeviceAddress GpuBuffer::get_address(VkDevice device)
-{
+VkDeviceAddress GpuBuffer::get_address(VkDevice device) {
     VkBufferDeviceAddressInfo address_info = {};
     address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     address_info.buffer = buf;
@@ -916,11 +866,10 @@ VkDeviceAddress GpuBuffer::get_address(VkDevice device)
 
 
 // *NewPL ////////////////////
-void MonoPl::mono_pl_shader_modules(VkDevice device, uint32_t count, VkShaderModule *modules,
-                                   size_t *code_sizes, const uint32_t **shader_code)
-{
+void MonoPl::get_shader_modules(
+    VkDevice device, uint32_t count, VkShaderModule *modules, size_t *code_sizes,
+    const uint32_t **shader_code) {
     VkShaderModuleCreateInfo info = {};
-    size_t code_size = 0;
     for (int i = 0; i < count; ++i) {
         info = {};
         info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -930,41 +879,32 @@ void MonoPl::mono_pl_shader_modules(VkDevice device, uint32_t count, VkShaderMod
         DEBUG_OBJ_CREATION(vkCreateShaderModule, check);
     }
 }
-void MonoPl::mono_pl_shader_stages(VkDevice device, uint32_t stage_count,
-                                  VkPipelineShaderStageCreateInfo *stage_infos,
-                                  const char **shader_files)
-{
+Spv* MonoPl::get_shader_stages(
+    VkDevice device, uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
+    const char **shader_files) {
     const uint32_t *shader_code[stage_count];
     size_t code_sizes[stage_count];
     for (int i = 0; i < stage_count; ++i) {
         shader_code[i] = reinterpret_cast<const uint32_t *>(
             File::read_spv(&code_sizes[i], shader_files[i], scratch_allocator));
     }
-
     VkShaderModule modules[stage_count];
-    mono_pl_shader_modules(device, stage_count, modules, code_sizes, shader_code);
+    get_shader_modules(device, stage_count, modules, code_sizes, shader_code);
 
-    size_t to_cut = 0;
-    for(int i = 0; i < stage_count; ++i)
-        to_cut += code_sizes[i];
-    scratch_allocator->cut(to_cut);
-
+    Spv *ret = reinterpret_cast<Spv*>(lin_alloc(sizeof(Spv) * stage_count));
     for (int i = 0; i < stage_count; ++i) {
-        bool ok;
-        Spv spv = Spv::parse(code_sizes[i], shader_code[i], &ok);
+        bool ok = false;
+        ret[i] = Spv::parse(code_sizes[i], shader_code[i], &ok);
         DEBUG_ASSERT(ok, "fail parse spirv");
         stage_infos[i] = {};
         stage_infos[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_infos[i].stage = spv.stage;
+        stage_infos[i].stage = static_cast<VkShaderStageFlagBits>(ret[i].stage);
         stage_infos[i].module = modules[i];
         stage_infos[i].pName = "main";
-        spv.kill();
     }
+    return ret;
 }
-
-VkPipelineVertexInputStateCreateInfo
-MonoPl::mono_pl_input_state(CreateInfo::VertInputInfo *info)
-{
+VkPipelineVertexInputStateCreateInfo MonoPl::get_input_state(CreateInfo::VertInputInfo *info) {
     for (uint32_t i = 0; i < info->bind_desc_count; ++i) {
         info->bind_descs[i] = {};
         info->bind_descs[i].binding = info->bindings[i];
@@ -989,18 +929,16 @@ MonoPl::mono_pl_input_state(CreateInfo::VertInputInfo *info)
 
     return vert_input_info;
 }
-
 VkPipelineInputAssemblyStateCreateInfo
-MonoPl::mono_pl_assembly_state(CreateInfo::AssemblyInfo *info)
-{
+MonoPl::get_assembly_state(CreateInfo::AssemblyInfo *info) {
     VkPipelineInputAssemblyStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ret.topology = info->topology;
     ret.primitiveRestartEnable = info->prim_restart;
     return ret;
 }
-VkPipelineViewportStateCreateInfo MonoPl::mono_pl_viewport(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor)
-{
+VkPipelineViewportStateCreateInfo
+MonoPl::get_viewport_state(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor) {
     float width = static_cast<float>(extent->width);
     float height = static_cast<float>(extent->height);
     *viewport = {};
@@ -1024,10 +962,8 @@ VkPipelineViewportStateCreateInfo MonoPl::mono_pl_viewport(VkExtent2D *extent, V
 
     return ret;
 }
-
 VkPipelineRasterizationStateCreateInfo
-MonoPl::mono_pl_rasterization_state(CreateInfo::RasterInfo *info)
-{
+MonoPl::get_rasterization_state(CreateInfo::RasterInfo *info) {
     using Bools = CreateInfo::RasterInfo::Bools;
 
     VkPipelineRasterizationStateCreateInfo ret = {};
@@ -1042,10 +978,8 @@ MonoPl::mono_pl_rasterization_state(CreateInfo::RasterInfo *info)
 
     return ret;
 }
-
 VkPipelineMultisampleStateCreateInfo
-MonoPl::mono_pl_multisample_state(CreateInfo::MultiSampleInfo *info)
-{
+MonoPl::get_multisample_state(CreateInfo::MultiSampleInfo *info) {
     using Bools = CreateInfo::MultiSampleInfo::Bools;
 
     VkPipelineMultisampleStateCreateInfo ret = {};
@@ -1059,10 +993,8 @@ MonoPl::mono_pl_multisample_state(CreateInfo::MultiSampleInfo *info)
 
     return ret;
 }
-
 VkPipelineDepthStencilStateCreateInfo
-MonoPl::mono_pl_depth_stencil_state(CreateInfo::DepthStencilInfo *info)
-{
+MonoPl::get_depth_stencil_state(CreateInfo::DepthStencilInfo *info) {
     using Bools = CreateInfo::DepthStencilInfo::Bools;
 
     VkPipelineDepthStencilStateCreateInfo ret = {};
@@ -1084,9 +1016,8 @@ MonoPl::mono_pl_depth_stencil_state(CreateInfo::DepthStencilInfo *info)
 
     return ret;
 }
-
-VkPipelineColorBlendStateCreateInfo MonoPl::mono_pl_blend_state(CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments)
-{
+VkPipelineColorBlendStateCreateInfo MonoPl::get_blend_state(
+    CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments) {
     for (uint32_t i = 0; i < info->attachment_count; ++i) {
         attachments[i] = {};
         attachments[i].blendEnable = info->attachments[i].blend_enable;
@@ -1103,8 +1034,7 @@ VkPipelineColorBlendStateCreateInfo MonoPl::mono_pl_blend_state(CreateInfo::Blen
 
     return ret;
 }
-
-VkPipelineDynamicStateCreateInfo MonoPl::mono_pl_dyn_state(CreateInfo::DynInfo *info) {
+VkPipelineDynamicStateCreateInfo MonoPl::get_dyn_state(CreateInfo::DynInfo *info) {
     VkPipelineDynamicStateCreateInfo ret = {};
     ret.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     ret.dynamicStateCount = info->count;
@@ -1112,51 +1042,65 @@ VkPipelineDynamicStateCreateInfo MonoPl::mono_pl_dyn_state(CreateInfo::DynInfo *
 
     return ret;
 }
+// TODO streamline when Spv::Serialize is completed
+VkPipelineLayout MonoPl::get_layout(MonoPl::CreateInfo::LayoutInfo *info, uint32_t spv_count, Spv *spv) {
 
-MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info)
-{
-    MonoPl mono_pl;
-    mono_pl.device = device_;
+	/* TODO Current Task */
+
+    VkPipelineLayout ret;
+    return ret;
+}
+
+MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info) {
+    size_t to_cut = SCRATCH->get_mark();
+    MonoPl ret;
+    ret.device = device_;
 
     // ShaderStages
     VkPipelineShaderStageCreateInfo p_stages[create_info->shader_info->stage_count];
-    mono_pl_shader_stages(mono_pl.device, create_info->shader_info->stage_count, p_stages,
-                          create_info->shader_info->shader_files);
+    Spv *spv = get_shader_stages(
+        ret.device, create_info->shader_info->stage_count, p_stages,
+        create_info->shader_info->shader_files);
 
     // VertexInput
     VkVertexInputBindingDescription bind_descs[create_info->vert_input->bind_desc_count];
     VkVertexInputAttributeDescription attrib_descs[create_info->vert_input->attrib_desc_count];
     create_info->vert_input->bind_descs = bind_descs;
     create_info->vert_input->attrib_descs = attrib_descs;
-    VkPipelineVertexInputStateCreateInfo vert_input = mono_pl_input_state(create_info->vert_input);
+    VkPipelineVertexInputStateCreateInfo vert_input = get_input_state(create_info->vert_input);
 
     // VertexAssembly
     VkPipelineInputAssemblyStateCreateInfo assembly_state =
-        mono_pl_assembly_state(create_info->assembly_info);
+        get_assembly_state(create_info->assembly_info);
 
     // Viewport
     VkViewport viewport_ = {};
     VkRect2D scissor_ = {};
-    VkPipelineViewportStateCreateInfo viewport_state = mono_pl_viewport(create_info->viewport_info, &viewport_, &scissor_);
+    VkPipelineViewportStateCreateInfo viewport_state =
+        get_viewport_state(create_info->viewport_info, &viewport_, &scissor_);
 
     // RasterizationState
     VkPipelineRasterizationStateCreateInfo raster_state =
-        mono_pl_rasterization_state(create_info->raster_info);
+        get_rasterization_state(create_info->raster_info);
 
     // MultiSampleState
     VkPipelineMultisampleStateCreateInfo multisample_state =
-        mono_pl_multisample_state(create_info->multisample_info);
+        get_multisample_state(create_info->multisample_info);
 
     // DepthStencilState
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state =
-        mono_pl_depth_stencil_state(create_info->depth_stencil_info);
+        get_depth_stencil_state(create_info->depth_stencil_info);
 
     // ColorBlendState
     VkPipelineColorBlendAttachmentState attachments[create_info->blend_info->attachment_count];
-    VkPipelineColorBlendStateCreateInfo blend_state = mono_pl_blend_state(create_info->blend_info, attachments);
+    VkPipelineColorBlendStateCreateInfo blend_state =
+        get_blend_state(create_info->blend_info, attachments);
 
-    // DynState 
-    VkPipelineDynamicStateCreateInfo dyn_state = mono_pl_dyn_state(create_info->dyn_info);
+    // DynState
+    VkPipelineDynamicStateCreateInfo dyn_state = get_dyn_state(create_info->dyn_info);
+
+    // Layout
+    VkPipelineLayout layout = get_layout(create_info->layout_info, 2, spv);
 
     VkGraphicsPipelineCreateInfo pl_info = {};
     pl_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1171,16 +1115,20 @@ MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info)
     pl_info.pDepthStencilState = &depth_stencil_state;
     pl_info.pColorBlendState = &blend_state;
     pl_info.pDynamicState = &dyn_state;
-    //pl_info.renderPass = create_info->renderpass;
+    pl_info.layout = layout;
 
-    for (int i = 0; i < create_info->shader_info->stage_count; ++i)
-        vkDestroyShaderModule(mono_pl.device, p_stages[i].module, nullptr);
-    return mono_pl;
+    pl_info.renderPass = create_info->renderpass;
+
+    for (int i = 0; i < create_info->shader_info->stage_count; ++i) {
+        vkDestroyShaderModule(ret.device, p_stages[i].module, nullptr);
+        spv[i].kill();
+    }
+    
+    return ret;
 }
 
 static const char *SHADER_FILES[] = {"shaders/triangle3.vert.spv", "shaders/triangle3.frag.spv"};
-void Engine::mono_pl_init()
-{
+void Engine::mono_pl_init() {
     using CreateInfo = MonoPl::CreateInfo;
 
     // ShaderInfo
@@ -1247,20 +1195,21 @@ void Engine::mono_pl_init()
     info.blend_info = &blend_info;
     info.dyn_info = &dyn_info;
 
-    MonoPl pl = MonoPl::get(vk_device, &info);
+    mono_pl = MonoPl::get(vk_device, &info);
 }
 
-void MonoPl::kill() {}
+void MonoPl::kill() {
+    SCRATCH->cut_diff(to_cut);
+    // Destroy PipelineLayouts (i cannot find the lifetime rules)
+}
 
 // *DescBuffers ////////////////
-void Engine::init_ubos()
-{
+void Engine::init_ubos() {
     ubos.init(MAX_FRAME_COUNT);
     ubos.len = MAX_FRAME_COUNT;
     alloc_ubos(sizeof(UBO));
 }
-void Engine::init_bind_desc_bufs()
-{
+void Engine::init_bind_desc_bufs() {
     // Uniform Buffer (Camera Matrices)
     VkDescriptorSetLayoutBinding bind_info = {};
     bind_info.binding = 0;
@@ -1270,7 +1219,7 @@ void Engine::init_bind_desc_bufs()
     DescLayout ubo_layout = DescLayout::get(vk_device, 1, &bind_info);
 
     desc_buf = DescBuf::get(vk_device, vma_allocator, 0);
-    desc_buf.layouts.push(ubo_layout);
+    desc_buf.layouts.push(&ubo_layout);
     bool resource_buf = true;
 
     VkCommandBuffer cmd = *command.buf_alloc(1, true);
@@ -1293,8 +1242,7 @@ void Engine::init_bind_desc_bufs()
     vkWaitForFences(vk_device, 1, &fence, VK_TRUE, 1e9 * 10);
 }
 
-void DescBuf::bind(VkCommandBuffer cmd, uint32_t count, DescBuf *bufs, bool *resource_buf)
-{
+void DescBuf::bind(VkCommandBuffer cmd, uint32_t count, DescBuf *bufs, bool *resource_buf) {
     VkDescriptorBufferBindingInfoEXT infos[count];
     for (int i = 0; i < count; ++i) {
         // TODO:(Sol): pNext -> push descriptor handle
@@ -1307,15 +1255,13 @@ void DescBuf::bind(VkCommandBuffer cmd, uint32_t count, DescBuf *bufs, bool *res
     PFN::vkCmdBindDescriptorBuffersEXT(bufs[0].device, cmd, count, infos);
 }
 
-void DescBuf::kill()
-{
+void DescBuf::kill() {
     for (int i = 0; i < layouts.len; ++i)
         layouts[i].kill(device);
     buf.kill();
     layouts.kill();
 }
-DescBuf DescBuf::get(VkDevice device_, VmaAllocator vma, size_t size)
-{
+DescBuf DescBuf::get(VkDevice device_, VmaAllocator vma, size_t size) {
     GpuBuffer::CreateInfo buf_args = {};
     buf_args.size = size == 0 ? DEFAULT_SIZE : size;
     buf_args.usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
@@ -1334,9 +1280,8 @@ DescBuf DescBuf::get(VkDevice device_, VmaAllocator vma, size_t size)
     return ret;
 }
 
-DescLayout DescLayout::get(VkDevice device, uint32_t binding_count,
-                           VkDescriptorSetLayoutBinding *bindings)
-{
+DescLayout
+DescLayout::get(VkDevice device, uint32_t binding_count, VkDescriptorSetLayoutBinding *bindings) {
     VkDescriptorSetLayoutCreateInfo layout_info = {};
     layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
@@ -1351,24 +1296,21 @@ DescLayout DescLayout::get(VkDevice device, uint32_t binding_count,
     ret.binding_count = binding_count;
     ret.layout = layout;
 
-    ret.binding_offsets.init(binding_count, 8, heap_allocator);
-    ret.binding_offsets.fill_zero();
+    ret.binding_offsets.init(binding_count);
     for (uint32_t i = 0; i < binding_count; ++i)
-        PFN::vkGetDescriptorSetLayoutBindingOffsetEXT(device, layout, bindings[i].binding,
-                                                      &ret.binding_offsets[i]);
+        PFN::vkGetDescriptorSetLayoutBindingOffsetEXT(
+            device, layout, bindings[i].binding, (&ret.binding_offsets[i]));
     return ret;
 }
-void DescLayout::kill(VkDevice device)
-{
+// @MemoryLeak This function needs to be properly implemented (properly clear scratch allocator when pipelines have been created)
+void DescLayout::kill(VkDevice device) {
     vkDestroyDescriptorSetLayout(device, layout, nullptr);
-    binding_offsets.kill();
 }
 
 // TODO:(Sol): Align function props.descriptorBufferOffsetAlignment
 
 // *NewSync ////////////////
-void Engine::sync_init()
-{
+void Engine::sync_init() {
     sync = Sync::get(vk_device, -1, -1);
     uint32_t fence_count = 7;
     VkFence *fences = sync.fence_alloc(fence_count, false);
@@ -1376,8 +1318,7 @@ void Engine::sync_init()
     VkSemaphore *semaphores = sync.semaphore_alloc(semaphore_count, false, 0);
 }
 void Engine::sync_kill() { sync.kill(); }
-VkFence *Sync::fence_alloc(uint32_t count, bool signalled)
-{
+VkFence *Sync::fence_alloc(uint32_t count, bool signalled) {
     VkFenceCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     info.flags = signalled ? VK_FENCE_CREATE_SIGNALED_BIT : 0x0;
@@ -1396,8 +1337,7 @@ VkFence *Sync::fence_alloc(uint32_t count, bool signalled)
 
     return fences.data + offset;
 }
-VkSemaphore *Sync::semaphore_alloc(uint32_t count, bool timeline, uint64_t initial_value)
-{
+VkSemaphore *Sync::semaphore_alloc(uint32_t count, bool timeline, uint64_t initial_value) {
     VkSemaphoreCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -1424,8 +1364,7 @@ VkSemaphore *Sync::semaphore_alloc(uint32_t count, bool timeline, uint64_t initi
 
     return semaphores.data + offset;
 }
-Sync Sync::get(VkDevice device, int semaphores_size, int fences_size)
-{
+Sync Sync::get(VkDevice device, int semaphores_size, int fences_size) {
     Sync ret;
     ret.device = device;
     if (semaphores_size == -1) {
@@ -1450,8 +1389,7 @@ Sync Sync::get(VkDevice device, int semaphores_size, int fences_size)
 
     return ret;
 }
-void Sync::kill()
-{
+void Sync::kill() {
     for (uint32_t i = 0; i < semaphores.len; ++i)
         vkDestroySemaphore(device, semaphores[i], nullptr);
     semaphores.kill();
@@ -1462,22 +1400,18 @@ void Sync::kill()
 }
 
 // *NewCmd /////////////////
-void Engine::cmd_init()
-{
+void Engine::cmd_init() {
     Cmd::CreateInfo args = {};
     args.family_index = graphics_queue_index;
     command = Cmd::get(vk_device, &args);
 }
-VkCommandBuffer *Cmd::buf_alloc(uint32_t count, bool primary)
-{
+VkCommandBuffer *Cmd::buf_alloc(uint32_t count, bool primary) {
 
-    // clang-format off
     VkCommandBufferAllocateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     info.commandPool = pool;
     info.level = primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
     info.commandBufferCount = count;
-    // clang-format on
 
     if (bufs.cap - bufs.len < count) {
         size_t tmp = align(count, 8) * 2;
@@ -1493,8 +1427,7 @@ VkCommandBuffer *Cmd::buf_alloc(uint32_t count, bool primary)
     bufs.len += count;
     return bufs.data + offset;
 }
-VkResult Cmd::begin(VkCommandBuffer cmd, bool one_time, InheritanceInfo *inheritance)
-{
+VkResult Cmd::begin(VkCommandBuffer cmd, bool one_time, InheritanceInfo *inheritance) {
     VkCommandBufferBeginInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     info.flags = one_time ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0x0;
@@ -1506,21 +1439,18 @@ VkResult Cmd::begin(VkCommandBuffer cmd, bool one_time, InheritanceInfo *inherit
     DEBUG_OBJ_CREATION(vkBeginCommandBuffer, check);
     return check;
 }
-VkResult Cmd::end(VkCommandBuffer cmd)
-{
+VkResult Cmd::end(VkCommandBuffer cmd) {
     auto check = vkEndCommandBuffer(cmd);
     DEBUG_OBJ_CREATION(vkEndCommandBuffer, check);
     return check;
 }
 
 namespace {
-VkSemaphoreSubmitInfo *fill_semaphore_submits(uint32_t count, Cmd::SubmitInfo::SemaphoreInfo *args,
-                                              size_t *byte_count)
-{
+VkSemaphoreSubmitInfo *
+fill_semaphore_submits(uint32_t count, Cmd::SubmitInfo::SemaphoreInfo *args) {
     size_t size = count * sizeof(VkSemaphoreSubmitInfo);
     VkSemaphoreSubmitInfo *submits =
         reinterpret_cast<VkSemaphoreSubmitInfo *>(mem_alloca(size, 8, scratch_allocator));
-    *byte_count += align(size, 8);
     for (int i = 0; i < count; ++i) {
         submits[i] = {};
         submits[i].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -1531,13 +1461,11 @@ VkSemaphoreSubmitInfo *fill_semaphore_submits(uint32_t count, Cmd::SubmitInfo::S
     }
     return submits;
 }
-VkCommandBufferSubmitInfo *fill_cmd_submits(uint32_t count, Cmd::SubmitInfo::CmdInfo *args,
-                                            size_t *byte_count)
-{
+VkCommandBufferSubmitInfo *
+fill_cmd_submits(uint32_t count, Cmd::SubmitInfo::CmdInfo *args) {
     size_t size = count * sizeof(VkCommandBufferSubmitInfo);
     VkCommandBufferSubmitInfo *submits =
         reinterpret_cast<VkCommandBufferSubmitInfo *>(mem_alloca(size, 8, scratch_allocator));
-    *byte_count += align(size, 8);
     for (int i = 0; i < count; ++i) {
         submits[i] = {};
         submits[i].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -1548,11 +1476,9 @@ VkCommandBufferSubmitInfo *fill_cmd_submits(uint32_t count, Cmd::SubmitInfo::Cmd
 }
 } // namespace
 
-VkResult Cmd::submit(VkQueue queue, uint32_t count, SubmitInfo *args, VkFence fence)
-{
+VkResult Cmd::submit(VkQueue queue, uint32_t count, SubmitInfo *args, VkFence fence) {
     VkSubmitInfo2 submit_infos[count];
 
-    size_t byte_count = 0;
     VkSemaphoreSubmitInfo *wait_infos[count];
     VkSemaphoreSubmitInfo *signal_infos[count];
     VkCommandBufferSubmitInfo *cmd_infos[count];
@@ -1561,10 +1487,10 @@ VkResult Cmd::submit(VkQueue queue, uint32_t count, SubmitInfo *args, VkFence fe
         SubmitInfo tmp_args = args[i];
 
         wait_infos[i] =
-            fill_semaphore_submits(tmp_args.wait_count, tmp_args.wait_infos, &byte_count);
+            fill_semaphore_submits(tmp_args.wait_count, tmp_args.wait_infos);
         signal_infos[i] =
-            fill_semaphore_submits(tmp_args.signal_count, tmp_args.signal_infos, &byte_count);
-        cmd_infos[i] = fill_cmd_submits(tmp_args.cmd_count, tmp_args.cmd_infos, &byte_count);
+            fill_semaphore_submits(tmp_args.signal_count, tmp_args.signal_infos);
+        cmd_infos[i] = fill_cmd_submits(tmp_args.cmd_count, tmp_args.cmd_infos);
 
         submit_infos[i] = {};
         submit_infos[i].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -1576,12 +1502,10 @@ VkResult Cmd::submit(VkQueue queue, uint32_t count, SubmitInfo *args, VkFence fe
         submit_infos[i].pSignalSemaphoreInfos = signal_infos[i];
     }
     auto check = vkQueueSubmit2(queue, count, submit_infos, fence);
-    scratch_allocator->cut(byte_count);
     DEBUG_OBJ_CREATION(vkQueueSubmit2, check);
     return check;
 }
-void Cmd::reset_pool(bool free)
-{
+void Cmd::reset_pool(bool free) {
     if (free)
         vkResetCommandPool(device, pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
     else
@@ -1589,8 +1513,7 @@ void Cmd::reset_pool(bool free)
 
     bufs.len = 0;
 }
-Cmd Cmd::get(VkDevice device, CreateInfo *args)
-{
+Cmd Cmd::get(VkDevice device, CreateInfo *args) {
     VkCommandPoolCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     info.flags = args->flags;
@@ -1606,23 +1529,22 @@ Cmd Cmd::get(VkDevice device, CreateInfo *args)
 
     return ret;
 }
-void Cmd::kill()
-{
+void Cmd::kill() {
     vkDestroyCommandPool(device, pool, nullptr);
     bufs.kill();
 }
 
 // *Command ////////////////////
-void Engine::init_command()
-{
+void Engine::init_command() {
     vk_commandpools.init(2);
     vk_commandbuffers.init(2);
     vk_commandpools.len = 2;
 
     // TODO: : This will break if present and graphics queues have different
     // indices...
-    ASSERT(graphics_queue_index == present_queue_index,
-          "Queue families (present and graphics) are not equal");
+    ASSERT(
+        graphics_queue_index == present_queue_index,
+        "Queue families (present and graphics) are not equal");
     for (uint32_t i = 0; i < 2; ++i) {
         VkCommandPoolCreateInfo pool_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1635,19 +1557,21 @@ void Engine::init_command()
     for (uint32_t i = 0; i < 2; ++i)
         allocate_commandbuffers(i, 1);
 }
-void Engine::kill_command()
-{
+void Engine::kill_command() {
     for (int i = 0; i < vk_commandpools.len; ++i)
         vkDestroyCommandPool(vk_device, vk_commandpools[i], nullptr);
 
     vk_commandbuffers.kill();
     vk_commandpools.kill();
 }
-uint32_t Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count)
-{
-    uint32_t length = (uint32_t)vk_commandbuffers.len;
-    if (vk_commandbuffers.cap - length < buffer_count)
-        vk_commandbuffers.grow(buffer_count);
+uint32_t Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_count) {
+	if ((vk_commandbuffers.cap - vk_commandbuffers.len) < buffer_count) {
+		if (buffer_count < vk_commandbuffers.cap)
+			vk_commandbuffers.grow();
+		else
+			vk_commandbuffers.grow(buffer_count);
+	}
+
 
     VkCommandBufferAllocateInfo info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1656,14 +1580,17 @@ uint32_t Engine::allocate_commandbuffers(uint32_t pool_index, uint32_t buffer_co
         .commandBufferCount = buffer_count,
     };
     auto check =
-        vkAllocateCommandBuffers(vk_device, &info, vk_commandbuffers.data + vk_commandbuffers.len);
+        vkAllocateCommandBuffers(vk_device, &info, 
+				vk_commandbuffers.data + vk_commandbuffers.len);
     DEBUG_OBJ_CREATION(vkAllocateCommandBuffers, check);
 
     vk_commandbuffers.len += buffer_count;
-    return length;
+	DEBUG_ASSERT(vk_commandbuffers.len <= vk_commandbuffers.cap, "CmdBuf array overflow");
+
+    return (vk_commandbuffers.len - buffer_count);
 }
-void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index)
-{
+
+void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
     VkCommandBufferBeginInfo cmd_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 
     auto check_begin_buffer = vkBeginCommandBuffer(cmd, &cmd_begin_info);
@@ -1695,8 +1622,9 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index)
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_layout, 0, 1,
-                            &desc_sets[current_frame], 0, nullptr);
+    vkCmdBindDescriptorSets(
+        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_layout, 0, 1, &desc_sets[current_frame], 0,
+        nullptr);
 
     // vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
@@ -1705,8 +1633,7 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index)
     auto check_end_buffer = vkEndCommandBuffer(cmd);
     DEBUG_OBJ_CREATION(vkEndCommandBuffer, check_end_buffer);
 }
-void Engine::record_and_submit_cpy(size_t size, size_t index_offset)
-{
+void Engine::record_and_submit_cpy(size_t size, size_t index_offset) {
     uint32_t pool_index = 0;
     uint32_t index = allocate_commandbuffers(pool_index, 1);
 
@@ -1735,16 +1662,14 @@ void Engine::record_and_submit_cpy(size_t size, size_t index_offset)
 }
 
 // *Sync /////////////////
-void Engine::init_sync()
-{
+void Engine::init_sync() {
     vk_semaphores.init(4);
     vk_fences.init(2);
 
     create_semaphores(4, true);
     create_fences(2, true);
 }
-void Engine::kill_sync()
-{
+void Engine::kill_sync() {
     for (uint32_t i = 0; i < vk_semaphores.len; ++i)
         vkDestroySemaphore(vk_device, vk_semaphores[i], nullptr);
     for (uint32_t i = 0; i < vk_fences.len; ++i)
@@ -1753,8 +1678,7 @@ void Engine::kill_sync()
     vk_semaphores.kill();
     vk_fences.kill();
 }
-uint32_t Engine::create_semaphores(uint32_t count, bool binary)
-{
+uint32_t Engine::create_semaphores(uint32_t count, bool binary) {
     uint32_t length = vk_semaphores.len;
     if (vk_semaphores.cap - length < count)
         vk_semaphores.grow(count * 2);
@@ -1774,8 +1698,7 @@ uint32_t Engine::create_semaphores(uint32_t count, bool binary)
 
     return length;
 }
-uint32_t Engine::create_fences(uint32_t count, bool signalled)
-{
+uint32_t Engine::create_fences(uint32_t count, bool signalled) {
     uint32_t length = vk_fences.len;
     if (vk_fences.cap - length < count)
         vk_fences.grow(count * 2);
@@ -1796,8 +1719,7 @@ uint32_t Engine::create_fences(uint32_t count, bool signalled)
 
 
 // *Loop /////////////////
-void Engine::render_loop()
-{
+void Engine::render_loop() {
     int height = window->height;
     int width = window->width;
 
@@ -1836,8 +1758,7 @@ void Engine::render_loop()
     vkDeviceWaitIdle(vk_device);
 }
 
-void Engine::draw_frame(uint32_t *frame_index)
-{
+void Engine::draw_frame(uint32_t *frame_index) {
     VkFence render_done_fence = vk_fences[*frame_index];
     VkSemaphore image_available = vk_semaphores[*frame_index];
     VkSemaphore render_done = vk_semaphores[*frame_index + 1];
@@ -1846,8 +1767,8 @@ void Engine::draw_frame(uint32_t *frame_index)
     vkWaitForFences(vk_device, 1, &render_done_fence, VK_TRUE, UINT64_MAX);
 
     uint32_t image_index;
-    auto check_acquire = vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, image_available,
-                                               VK_NULL_HANDLE, &image_index);
+    auto check_acquire = vkAcquireNextImageKHR(
+        vk_device, vk_swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
 
     switch (check_acquire) {
     case VK_SUCCESS:
@@ -1905,18 +1826,16 @@ void Engine::draw_frame(uint32_t *frame_index)
 }
 
 // *PFNs
-void PFN::vkGetDescriptorSetLayoutBindingOffsetEXT(VkDevice device, VkDescriptorSetLayout layout,
-                                                   uint32_t binding, VkDeviceSize *pOffset)
-{
+void PFN::vkGetDescriptorSetLayoutBindingOffsetEXT(
+    VkDevice device, VkDescriptorSetLayout layout, uint32_t binding, VkDeviceSize *pOffset) {
     auto func = (PFN_vkGetDescriptorSetLayoutBindingOffsetEXT)vkGetDeviceProcAddr(
         device, "vkGetDescriptorSetLayoutBindingOffsetEXT");
     if (func != nullptr)
         return func(device, layout, binding, pOffset);
 }
-void PFN::vkCmdBindDescriptorBuffersEXT(VkDevice device, VkCommandBuffer commandBuffer,
-                                        uint32_t bufferCount,
-                                        const VkDescriptorBufferBindingInfoEXT *pBindingInfos)
-{
+void PFN::vkCmdBindDescriptorBuffersEXT(
+    VkDevice device, VkCommandBuffer commandBuffer, uint32_t bufferCount,
+    const VkDescriptorBufferBindingInfoEXT *pBindingInfos) {
     auto func = (PFN_vkCmdBindDescriptorBuffersEXT)vkGetDeviceProcAddr(
         device, "vkCmdBindDescriptorBuffersEXT");
     if (func != nullptr)
@@ -1926,8 +1845,7 @@ void PFN::vkCmdBindDescriptorBuffersEXT(VkDevice device, VkCommandBuffer command
 
 // *Debug //////////////////////
 #if V_LAYERS
-void Engine::init_debug()
-{
+void Engine::init_debug() {
     VkDebugUtilsMessengerCreateInfoEXT debug_create_info;
     populate_debug_create_info(&debug_create_info);
     VkResult check =
@@ -1935,13 +1853,11 @@ void Engine::init_debug()
 
     DEBUG_ASSERT(check == VK_SUCCESS, "FAILED TO INIT DEBUG MESSENGER (Aborting)...\n");
 }
-void Engine::kill_debug()
-{
+void Engine::kill_debug() {
     vkDestroyDebugUtilsMessengerEXT(vk_instance, debug_messenger, nullptr);
 }
 
-void Engine::populate_debug_create_info(VkDebugUtilsMessengerCreateInfoEXT *create_info)
-{
+void Engine::populate_debug_create_info(VkDebugUtilsMessengerCreateInfoEXT *create_info) {
     create_info->sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     create_info->flags = 0x0;
     create_info->messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
@@ -1956,11 +1872,10 @@ void Engine::populate_debug_create_info(VkDebugUtilsMessengerCreateInfoEXT *crea
     create_info->pUserData = nullptr;
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL
-Engine::debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                       VkDebugUtilsMessageTypeFlagsEXT messageType,
-                       const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
-{
+VKAPI_ATTR VkBool32 VKAPI_CALL Engine::debug_callback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData) {
 
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
@@ -1971,22 +1886,19 @@ Engine::debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 
 VkResult Engine::vkCreateDebugUtilsMessengerEXT(
     VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
-    const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger)
-{
+    const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger) {
     auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
         instance, "vkCreateDebugUtilsMessengerEXT");
     if (func != nullptr) {
         return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-    }
-    else {
+    } else {
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 }
 
-void Engine::vkDestroyDebugUtilsMessengerEXT(VkInstance instance,
-                                             VkDebugUtilsMessengerEXT debugMessenger,
-                                             const VkAllocationCallbacks *pAllocator)
-{
+void Engine::vkDestroyDebugUtilsMessengerEXT(
+    VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
+    const VkAllocationCallbacks *pAllocator) {
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
         instance, "vkDestroyDebugUtilsMessengerEXT");
     if (func != nullptr) {

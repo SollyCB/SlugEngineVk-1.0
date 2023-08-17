@@ -1,0 +1,7 @@
+#!/usr/bin/bash
+
+if [[ $1 == '' ]]; then
+    spirv-dis test_1.vert.spv
+else
+    spirv-dis test_1.$1.spv
+fi

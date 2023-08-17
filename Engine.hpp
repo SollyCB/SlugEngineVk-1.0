@@ -2,14 +2,12 @@
 
 #include <glm/glm.hpp>
 
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.h>
 
-#include "Array.hpp"
+#include "Basic.hpp"
 #include "Camera.hpp"
 #include "Clock.hpp"
 #include "Image.hpp"
-#include "Vec.hpp"
 #include "Window.hpp"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
@@ -17,6 +15,9 @@
 #include "vk_mem_alloc.h"
 
 namespace Sol {
+
+// Forward declares
+struct Spv;
 
 #define V_LAYERS true
 
@@ -126,8 +127,8 @@ struct TexImage {
 };
 
 struct Sync {
-    Vec<VkFence> fences;
-    Vec<VkSemaphore> semaphores;
+    DynArray<VkFence> fences;
+    DynArray<VkSemaphore> semaphores;
     VkDevice device;
 
     VkFence *fence_alloc(uint32_t count, bool signalled);
@@ -141,7 +142,7 @@ struct Sync {
 };
 
 struct Cmd {
-    Vec<VkCommandBuffer> bufs;
+    DynArray<VkCommandBuffer> bufs;
     VkCommandPool pool;
     VkDevice device;
 
@@ -185,7 +186,7 @@ struct Cmd {
 
 struct DescLayout {
     VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-    Array<size_t> binding_offsets;
+    Array<usize> binding_offsets;
     uint32_t binding_count = 0;
 
     static DescLayout
@@ -214,7 +215,7 @@ struct GpuBuffer {
 };
 
 struct DescBuf {
-    Vec<DescLayout> layouts;
+    DynArray<DescLayout> layouts;
     GpuBuffer buf;
     VkDevice device;
 
@@ -301,6 +302,8 @@ struct MonoPl {
             uint32_t count = 0;
             VkDynamicState *states = nullptr;
         };
+        struct LayoutInfo {
+        };
 
         ShaderInfo *shader_info;
         VertInputInfo *vert_input;
@@ -311,33 +314,37 @@ struct MonoPl {
         DepthStencilInfo *depth_stencil_info;
         BlendInfo *blend_info;
         DynInfo *dyn_info;
+        LayoutInfo *layout_info;
         VkRenderPass renderpass;
     };
     static MonoPl get(VkDevice device, CreateInfo *args);
     void kill();
 
   private:
-    static void mono_pl_shader_modules(
+    size_t to_cut = 0;
+
+    static void get_shader_modules(
         VkDevice device, uint32_t count, VkShaderModule *modules, size_t *code_sizes,
         const uint32_t **shader_code);
-    static void mono_pl_shader_stages(
+    static Spv* get_shader_stages(
         VkDevice device, uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
         const char **shader_files);
     static VkPipelineVertexInputStateCreateInfo
-    mono_pl_input_state(MonoPl::CreateInfo::VertInputInfo *info);
+    get_input_state(MonoPl::CreateInfo::VertInputInfo *info);
     static VkPipelineInputAssemblyStateCreateInfo
-    mono_pl_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info);
+    get_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info);
     static VkPipelineViewportStateCreateInfo
-    mono_pl_viewport(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor);
+    get_viewport_state(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor);
     static VkPipelineRasterizationStateCreateInfo
-    mono_pl_rasterization_state(MonoPl::CreateInfo::RasterInfo *info);
+    get_rasterization_state(MonoPl::CreateInfo::RasterInfo *info);
     static VkPipelineMultisampleStateCreateInfo
-    mono_pl_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info);
+    get_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info);
     static VkPipelineDepthStencilStateCreateInfo
-    mono_pl_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info);
-    static VkPipelineColorBlendStateCreateInfo mono_pl_blend_state(
+    get_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info);
+    static VkPipelineColorBlendStateCreateInfo get_blend_state(
         MonoPl::CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments);
-    static VkPipelineDynamicStateCreateInfo mono_pl_dyn_state(MonoPl::CreateInfo::DynInfo *info);
+    static VkPipelineDynamicStateCreateInfo get_dyn_state(MonoPl::CreateInfo::DynInfo *info);
+    static VkPipelineLayout get_layout(MonoPl::CreateInfo::LayoutInfo *info, uint32_t spv_count, Spv *spv);
 };
 
 struct Engine {
@@ -392,7 +399,7 @@ struct Engine {
     void alloc_staging_buf(size_t size, void *data);
     VertexBuffer vert_buf;
     void alloc_vert_buf(size_t size);
-    Vec<OldGpuBuffer> ubos;
+    DynArray<OldGpuBuffer> ubos;
     void alloc_ubos(size_t size);
     void kill_ubos();
     void update_ubo(uint32_t frame_index);
@@ -400,8 +407,8 @@ struct Engine {
     // Swapchain
     VkSwapchainKHR vk_swapchain;
     SwapchainSettings swapchain_settings;
-    Vec<VkImage> swapchain_images;
-    Vec<VkImageView> swapchain_image_views;
+    DynArray<VkImage> swapchain_images;
+    DynArray<VkImageView> swapchain_image_views;
     void init_swapchain();
     void kill_swapchain();
     void get_swapchain_settings();
@@ -444,6 +451,7 @@ struct Engine {
     void cmd_init();
 
     // NewPL
+    MonoPl mono_pl;
     void mono_pl_init();
 
     // INIT2
@@ -458,14 +466,14 @@ struct Engine {
     VkShaderModule create_shader_module(const char *file_name);
 
     // Framebuffer
-    Vec<VkFramebuffer> vk_framebuffers;
+    DynArray<VkFramebuffer> vk_framebuffers;
     void init_framebuffers();
     void kill_framebuffers();
     void resize_framebuffers();
 
     // Command
-    Vec<VkCommandBuffer> vk_commandbuffers;
-    Vec<VkCommandPool> vk_commandpools;
+    DynArray<VkCommandBuffer> vk_commandbuffers;
+    DynArray<VkCommandPool> vk_commandpools;
     void init_command();
     void kill_command();
     uint32_t allocate_commandbuffers(uint32_t command_pool_index, uint32_t buffer_count);
@@ -473,8 +481,8 @@ struct Engine {
     void record_and_submit_cpy(size_t size, size_t index_offset);
 
     // Sync
-    Vec<VkSemaphore> vk_semaphores;
-    Vec<VkFence> vk_fences;
+    DynArray<VkSemaphore> vk_semaphores;
+    DynArray<VkFence> vk_fences;
     void init_sync();
     void kill_sync();
     uint32_t create_semaphores(uint32_t count, bool binary);
