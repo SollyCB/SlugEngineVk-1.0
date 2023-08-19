@@ -1,6 +1,6 @@
-0. Current Task: New Pipeline Class!
-    Setup the new MonoPl (MonolithPipeline) to use the DescBuffer class.
+1. Line 908 in Engine.cpp. 
+    Binding offsets into the descriptor buffer. 
 
-
-# Test Todos
-0. Write gltf tests
+    (The buffer contains space for descriptors to be written to. Descriptors can just be 
+    pictured as some info shit for the shaders to understand how to access data that I have
+    put in buffers).

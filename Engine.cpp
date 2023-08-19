@@ -4,7 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/vector_relational.hpp>
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include "Engine.hpp"
 #include "VulkanErrors.hpp"
@@ -26,12 +26,6 @@ Engine *Engine::instance() { return &Slug; }
 
 // *Public ////////////////
 void Engine::init() {
-    /*
-     *  This could be called from "main()", but as it is only the rendering
-     * engine that currently requires it, it can stay here. If I find that there
-     * is no better way of getting input than querying the window, but input is
-     * integral to other systems (not just render) this will move.
-     */
     window->init();
 
     init_instance();
@@ -80,8 +74,9 @@ void Engine::init2() {
     std::cout << "DescBuf Init\n";
     mono_pl_init();
     std::cout << "MonoPl Init\n";
-
+    //render_loop2();
     std::cout << "Init 2 End\n";
+    draw2();
 }
 void Engine::kill2() {
     std::cout << "Kill2 Start\n";
@@ -535,7 +530,7 @@ void Engine::resize_swapchain() {
 
 
 // *Viewport //////////////////
-VkViewport Engine::get_viewport() {
+VkViewport get_viewport(SwapchainSettings swapchain_settings) {
     return {
         .x = 0.0f,
         .y = 0.0f,
@@ -545,7 +540,7 @@ VkViewport Engine::get_viewport() {
         .maxDepth = 1.0f,
     };
 }
-VkRect2D Engine::get_scissor() {
+VkRect2D get_scissor(SwapchainSettings swapchain_settings) {
     return {
         .offset = {0, 0},
         .extent = swapchain_settings.extent,
@@ -733,8 +728,8 @@ void Engine::init_pipeline() {
         .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     };
 
-    VkViewport viewport = get_viewport();
-    VkRect2D scissor = get_scissor();
+    VkViewport viewport = get_viewport(swapchain_settings);
+    VkRect2D scissor = get_scissor(swapchain_settings);
 
     VkPipelineViewportStateCreateInfo viewport_state = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -864,10 +859,74 @@ VkDeviceAddress GpuBuffer::get_address(VkDevice device) {
     return vkGetBufferDeviceAddress(device, &address_info);
 }
 
+u8 FRAME_INDEX = 0;
+// *NewDraw //////////////////
+struct DrawInfo {
+    Window *window;
+    Cmd *cmd;
+    VkRenderPass renderpass;
+    VkFramebuffer *framebuffers;
+    SwapchainSettings *swapchain_settings;
+    MonoPl *pipeline;
+    VertexBuffer *vert_buf;
+};
+void record_submit_draw_cmd(DrawInfo *info) {
+        VkCommandBufferBeginInfo cmd_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+
+        VkCommandBuffer cmd = info->cmd[FRAME_INDEX].bufs[0];
+        auto check_begin_buffer = vkBeginCommandBuffer(cmd, &cmd_begin_info);
+        DEBUG_OBJ_CREATION(vkBeginCommandBuffer, check_begin_buffer);
+
+        VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f}}};
+        VkRenderPassBeginInfo renderpass_info = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = info->renderpass,
+            .framebuffer = info->framebuffers[FRAME_INDEX],
+            .renderArea =
+                {
+                    .offset = {0, 0},
+                    .extent = info->swapchain_settings->extent,
+                },
+            .clearValueCount = 1,
+            .pClearValues = &clear_color,
+        };
+
+        vkCmdBeginRenderPass(cmd, &renderpass_info, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, info->pipeline->pl);
+
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &info->vert_buf->buf, &offset);
+        vkCmdBindIndexBuffer(cmd, info->vert_buf->buf, sizeof(Vertex) * 4, VK_INDEX_TYPE_UINT32);
+
+        VkViewport viewport = get_viewport(*info->swapchain_settings);
+        VkRect2D scissor = get_scissor(*info->swapchain_settings);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        // Bind offsets into the DesciptorBuffer
+
+        // TODO: Current Task!!
+        //  Some stuff may need to be rejigged, but I would try my best to keep everything as stock as 
+        //  possible for now and just a minimum working version and upgrade in small steps. Srsly, 
+        //  dont try to do too much at one now. Cos this bit might be a little tricky...
+
+        // vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdDrawIndexed(cmd, index_count, 1, 0, 0, 0);
+
+        vkCmdEndRenderPass(cmd);
+        auto check_end_buffer = vkEndCommandBuffer(cmd);
+        DEBUG_OBJ_CREATION(vkEndCommandBuffer, check_end_buffer);
+}
+void draw2(DrawInfo *info) {
+    while(!info->window->close()) {
+        FRAME_INDEX %= 2;
+        record_submit_draw_cmd(info);
+    }
+}
 
 // *NewPL ////////////////////
 void MonoPl::get_shader_modules(
-    VkDevice device, uint32_t count, VkShaderModule *modules, size_t *code_sizes,
+    uint32_t count, VkShaderModule *modules, size_t *code_sizes,
     const uint32_t **shader_code) {
     VkShaderModuleCreateInfo info = {};
     for (int i = 0; i < count; ++i) {
@@ -880,7 +939,7 @@ void MonoPl::get_shader_modules(
     }
 }
 Spv* MonoPl::get_shader_stages(
-    VkDevice device, uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
+    uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
     const char **shader_files) {
     const uint32_t *shader_code[stage_count];
     size_t code_sizes[stage_count];
@@ -889,7 +948,7 @@ Spv* MonoPl::get_shader_stages(
             File::read_spv(&code_sizes[i], shader_files[i], scratch_allocator));
     }
     VkShaderModule modules[stage_count];
-    get_shader_modules(device, stage_count, modules, code_sizes, shader_code);
+    get_shader_modules(stage_count, modules, code_sizes, shader_code);
 
     Spv *ret = reinterpret_cast<Spv*>(lin_alloc(sizeof(Spv) * stage_count));
     for (int i = 0; i < stage_count; ++i) {
@@ -1042,12 +1101,183 @@ VkPipelineDynamicStateCreateInfo MonoPl::get_dyn_state(CreateInfo::DynInfo *info
 
     return ret;
 }
-// TODO streamline when Spv::Serialize is completed
-VkPipelineLayout MonoPl::get_layout(MonoPl::CreateInfo::LayoutInfo *info, uint32_t spv_count, Spv *spv) {
 
-	/* TODO Current Task */
+/* My understanding SPIRV image/sampled image types and their mappings to Vulkan types: */
+// If an OpVariable's ResultId points to OpTypeSampledImage, I understand this as being 
+// combined image sampler descriptor type. 
+// If an OpVariable's OpType points to an OpTypeImage, I understand this as requiring 
+// analysis of the Image's attributes to understand its descriptor type.
+// If an OpVariable's Storage is UNIFORM or STORAGE_BUFFER then its descriptor type is the same.
+
+static void fill_layout_binding(
+		Spv::Var var,
+		HashMap<u16, Spv::Type> *types, 
+		//HashMap<u16, Spv::DecoInfo> *deco_infos, 
+		VkDescriptorSetLayoutBinding *binding) 
+{
+	if (types == nullptr || binding == nullptr)
+		return;
+
+    // @TODO Need a better implementation for handling shader access stages
+	if (var.storage == Spv::Storage::UNIFORM || var.storage == Spv::Storage::STORAGE_BUFFER) {
+		binding->stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+        if (var.storage == Spv::Storage::UNIFORM)
+		    binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        else
+		    binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    }
+
+	Spv::Type *var_type = types->find_cpy(var.type_id);
+	if (var_type->name == Spv::Name::ARRAY) {
+		binding->descriptorCount = var_type->arr.len;
+		var_type = types->find_cpy(var_type->arr.type_id);
+	} else { 
+		binding->descriptorCount = 1;
+	}
+
+	// @SpvBug Idk what is the correct way to handle what resources are accessed from 
+	// which shader stage. (linked to the above @TODO)
+	// @Incomplete This needs to be tested against different containers, such as 
+	// different descriptor types but contained in structs. Idk what effect this 
+	// indirection will have.
+	switch(var_type->name) {
+	using Name = Spv::Name;
+	// @TODO Handle inline uniform descriptor type (This will also need to be added to Spv type)
+	case Name::SAMPLER:
+	{
+		binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		binding->stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		break;
+	}
+	case Name::SAMPLED_IMAGE:
+	{
+		binding->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding->stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		break;
+	}
+	case Name::IMAGE:
+	{
+		Spv::Image img_type = var_type->image;
+		switch(img_type.dim) {
+			using Dim = Spv::Image::Dim;
+			using Flags = Spv::Image::Flags;
+
+			case Dim::D1:
+			case Dim::D2:
+			case Dim::D3:
+			case Dim::CUBE:
+			case Dim::RECT: 
+			{
+				binding->descriptorType = 
+					VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				break;
+			}
+			case Dim::BUFFER:
+			{
+				if (img_type.flags & (u8)Flags::SAMPLED)
+					binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+				else if (img_type.flags & (u8)Flags::READ_WRITE)
+					binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
+				break;
+			}
+			case Dim::SUBPASS_DATA:
+			{
+				binding->descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+				break;
+			}
+
+			default:
+				break;
+		}
+		break;
+	}
+    case Spv::Name::STRUCT:
+        break;
+	default:
+        std::cout << "Type " << (u32)var_type->name << '\n';
+		DEBUG_ASSERT(false, "Unsupported Type");
+		break;
+	}
+}
+
+// @TODO Handle immutablesamplers
+// @TODO I think I can parse both fragment and vert shader side by side, and compare where samplers are used to understand their access stage
+// @TODO streamline this when Spv::Serialize is completed
+const u8 DESC_SET_COUNT = 4;
+const u8 DESC_BINDING_COUNT = 4;
+VkPipelineLayout MonoPl::get_layout(Spv *spv) {
+	auto var_iter = spv->vars.iter();
+	auto *var_kv = var_iter.next();
+
+	// @Incomplete this is a bit hackish, but minimum working version is good. 
+    // Lots of todos in the 'fill_layout_binding' func above...
+    
+    VkDescriptorSetLayoutBinding bindings[DESC_SET_COUNT][DESC_BINDING_COUNT] = {};
+
+    Spv::DecoInfo *deco_info;
+	while(var_kv) {
+		deco_info = spv->decorations.find_cpy(var_kv->key);
+
+		if (deco_info == nullptr || (deco_info->flags & (u32)Spv::DecoFlagBits::DESC_SET) == 0) {
+            var_kv = var_iter.next();
+			continue;
+        }
+
+		DEBUG_ASSERT(deco_info->flags & (u32)Spv::DecoFlagBits::BINDING, 
+				"Descriptor does not have a binding");
+
+        bindings[deco_info->desc_set][deco_info->binding] = {};
+
+        bindings[deco_info->desc_set][deco_info->binding].binding = deco_info->binding;
+		fill_layout_binding(var_kv->value, &spv->types, //&spv->decorations,
+                &bindings[deco_info->desc_set][deco_info->binding]);
+
+		var_kv = var_iter.next();
+	}
+
+    u8 binding_count = 0;
+    VkDescriptorSetLayoutBinding final_bindings[DESC_BINDING_COUNT];
+    u8 set_count = 0;
+    VkDescriptorSetLayout sets[DESC_SET_COUNT];
+
+    VkDescriptorSetLayoutCreateInfo set_info;
+    for(int i = 0; i < DESC_SET_COUNT; ++i) {
+        binding_count = 0;
+        for(int j = 0; j < DESC_BINDING_COUNT; ++j) {
+            if (bindings[i][j].descriptorCount > 0) {
+                final_bindings[j] = bindings[i][j];
+                ++binding_count;
+            }
+        }
+
+        if (binding_count > 0) {
+            set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+            set_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+            set_info.bindingCount = binding_count;
+            set_info.pBindings = final_bindings;
+
+            auto check = vkCreateDescriptorSetLayout(device, &set_info, nullptr, &sets[set_count]);
+            DEBUG_OBJ_CREATION(vkCreateDescriptorSetLayout, check);
+
+            ++set_count;
+        }
+    }
+
+    VkPipelineLayoutCreateInfo create_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    create_info.setLayoutCount = set_count;
+    create_info.pSetLayouts = sets;
 
     VkPipelineLayout ret;
+    auto check = vkCreatePipelineLayout(device, &create_info, nullptr, &ret);
+    DEBUG_OBJ_CREATION(vkCreatePipelineLayout, check);
+
+    descriptor_sets.init(set_count);
+    descriptor_sets.copy_here(sets, set_count, 0);
+    for(int i = 0; i < set_count; ++i) {
+        vkDestroyDescriptorSetLayout(device, sets[i], nullptr);
+    }
     return ret;
 }
 
@@ -1058,52 +1288,53 @@ MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info) {
 
     // ShaderStages
     VkPipelineShaderStageCreateInfo p_stages[create_info->shader_info->stage_count];
-    Spv *spv = get_shader_stages(
-        ret.device, create_info->shader_info->stage_count, p_stages,
+    Spv *spv = ret.get_shader_stages(
+        create_info->shader_info->stage_count, p_stages,
         create_info->shader_info->shader_files);
 
     // VertexInput
     VkVertexInputBindingDescription bind_descs[create_info->vert_input->bind_desc_count];
     VkVertexInputAttributeDescription attrib_descs[create_info->vert_input->attrib_desc_count];
+
     create_info->vert_input->bind_descs = bind_descs;
     create_info->vert_input->attrib_descs = attrib_descs;
-    VkPipelineVertexInputStateCreateInfo vert_input = get_input_state(create_info->vert_input);
+
+    VkPipelineVertexInputStateCreateInfo vert_input = ret.get_input_state(create_info->vert_input);
 
     // VertexAssembly
     VkPipelineInputAssemblyStateCreateInfo assembly_state =
-        get_assembly_state(create_info->assembly_info);
+        ret.get_assembly_state(create_info->assembly_info);
 
     // Viewport
     VkViewport viewport_ = {};
     VkRect2D scissor_ = {};
     VkPipelineViewportStateCreateInfo viewport_state =
-        get_viewport_state(create_info->viewport_info, &viewport_, &scissor_);
+        ret.get_viewport_state(create_info->viewport_info, &viewport_, &scissor_);
 
     // RasterizationState
     VkPipelineRasterizationStateCreateInfo raster_state =
-        get_rasterization_state(create_info->raster_info);
+        ret.get_rasterization_state(create_info->raster_info);
 
     // MultiSampleState
     VkPipelineMultisampleStateCreateInfo multisample_state =
-        get_multisample_state(create_info->multisample_info);
+        ret.get_multisample_state(create_info->multisample_info);
 
     // DepthStencilState
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state =
-        get_depth_stencil_state(create_info->depth_stencil_info);
+        ret.get_depth_stencil_state(create_info->depth_stencil_info);
 
     // ColorBlendState
     VkPipelineColorBlendAttachmentState attachments[create_info->blend_info->attachment_count];
     VkPipelineColorBlendStateCreateInfo blend_state =
-        get_blend_state(create_info->blend_info, attachments);
+        ret.get_blend_state(create_info->blend_info, attachments);
 
     // DynState
-    VkPipelineDynamicStateCreateInfo dyn_state = get_dyn_state(create_info->dyn_info);
+    VkPipelineDynamicStateCreateInfo dyn_state = ret.get_dyn_state(create_info->dyn_info);
 
     // Layout
-    VkPipelineLayout layout = get_layout(create_info->layout_info, 2, spv);
+    ret.layout = ret.get_layout(spv);
 
-    VkGraphicsPipelineCreateInfo pl_info = {};
-    pl_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    VkGraphicsPipelineCreateInfo pl_info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pl_info.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
     pl_info.stageCount = create_info->shader_info->stage_count;
     pl_info.pStages = p_stages;
@@ -1115,15 +1346,19 @@ MonoPl MonoPl::get(VkDevice device_, CreateInfo *create_info) {
     pl_info.pDepthStencilState = &depth_stencil_state;
     pl_info.pColorBlendState = &blend_state;
     pl_info.pDynamicState = &dyn_state;
-    pl_info.layout = layout;
-
+    pl_info.layout = ret.layout;
     pl_info.renderPass = create_info->renderpass;
+    pl_info.subpass = 0;
+
+    auto check = 
+        vkCreateGraphicsPipelines(ret.device, VK_NULL_HANDLE, 1, &pl_info, nullptr, &ret.pl);
+    DEBUG_OBJ_CREATION(vkCreateGraphicsPipelines, check);
 
     for (int i = 0; i < create_info->shader_info->stage_count; ++i) {
         vkDestroyShaderModule(ret.device, p_stages[i].module, nullptr);
         spv[i].kill();
     }
-    
+
     return ret;
 }
 
@@ -1194,13 +1429,14 @@ void Engine::mono_pl_init() {
     info.depth_stencil_info = &depth_stencil_info;
     info.blend_info = &blend_info;
     info.dyn_info = &dyn_info;
+    info.renderpass = vk_renderpass;
 
     mono_pl = MonoPl::get(vk_device, &info);
 }
 
 void MonoPl::kill() {
-    SCRATCH->cut_diff(to_cut);
-    // Destroy PipelineLayouts (i cannot find the lifetime rules)
+    vkDestroyPipelineLayout(device, layout, nullptr);
+    vkDestroyPipeline(device, pl, nullptr);
 }
 
 // *DescBuffers ////////////////
@@ -1617,8 +1853,8 @@ void Engine::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
     vkCmdBindVertexBuffers(cmd, 0, 1, &vert_buf.buf, &offset);
     vkCmdBindIndexBuffer(cmd, vert_buf.buf, sizeof(Vertex) * 4, VK_INDEX_TYPE_UINT32);
 
-    VkViewport viewport = get_viewport();
-    VkRect2D scissor = get_scissor();
+    VkViewport viewport = get_viewport(swapchain_settings);
+    VkRect2D scissor = get_scissor(swapchain_settings);
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 

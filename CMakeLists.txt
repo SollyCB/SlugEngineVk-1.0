@@ -57,6 +57,16 @@ target_compile_options(Slug PUBLIC "${COMPILE_FLAGS_SLUGVK_TOP}")
 add_subdirectory(common)
 target_link_libraries(Slug PUBLIC "${LINK_FLAGS_SLUGVK_TOP}" SlugVk-lib-common) 
 
+add_executable(LayoutTest "layout.cpp" "test/test.cpp")
+target_include_directories(Slug PUBLIC 
+    "${PROJECT_BINARY_DIR}" 
+    "common" 
+    "common/external"
+    "external"
+)
+target_compile_options(LayoutTest PUBLIC "${COMPILE_FLAGS_SLUGVK_TOP}") 
+target_link_libraries(LayoutTest PUBLIC "${LINK_FLAGS_SLUGVK_TOP}" SlugVk-lib-common) 
+
 if(BUILD_TESTS)
     message("Building Tests...")
     add_executable(TestTop 

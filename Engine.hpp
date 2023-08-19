@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #include "Basic.hpp"
 #include "Camera.hpp"
@@ -226,10 +226,11 @@ struct DescBuf {
     void kill();
 };
 
-// TODO:(Sol): Current task...
 struct MonoPl {
     VkDevice device = VK_NULL_HANDLE;
     VkPipeline pl = VK_NULL_HANDLE;
+    VkPipelineLayout layout;
+    Array<VkDescriptorSetLayout> descriptor_sets;
 
     struct CreateInfo {
         struct ShaderInfo {
@@ -302,8 +303,6 @@ struct MonoPl {
             uint32_t count = 0;
             VkDynamicState *states = nullptr;
         };
-        struct LayoutInfo {
-        };
 
         ShaderInfo *shader_info;
         VertInputInfo *vert_input;
@@ -314,7 +313,6 @@ struct MonoPl {
         DepthStencilInfo *depth_stencil_info;
         BlendInfo *blend_info;
         DynInfo *dyn_info;
-        LayoutInfo *layout_info;
         VkRenderPass renderpass;
     };
     static MonoPl get(VkDevice device, CreateInfo *args);
@@ -323,29 +321,39 @@ struct MonoPl {
   private:
     size_t to_cut = 0;
 
-    static void get_shader_modules(
-        VkDevice device, uint32_t count, VkShaderModule *modules, size_t *code_sizes,
+    void get_shader_modules(
+        uint32_t count, VkShaderModule *modules, size_t *code_sizes,
         const uint32_t **shader_code);
-    static Spv* get_shader_stages(
-        VkDevice device, uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
+    Spv* get_shader_stages(
+        uint32_t stage_count, VkPipelineShaderStageCreateInfo *stage_infos,
         const char **shader_files);
-    static VkPipelineVertexInputStateCreateInfo
+    VkPipelineVertexInputStateCreateInfo
     get_input_state(MonoPl::CreateInfo::VertInputInfo *info);
-    static VkPipelineInputAssemblyStateCreateInfo
+    VkPipelineInputAssemblyStateCreateInfo
     get_assembly_state(MonoPl::CreateInfo::AssemblyInfo *info);
-    static VkPipelineViewportStateCreateInfo
+    VkPipelineViewportStateCreateInfo
     get_viewport_state(VkExtent2D *extent, VkViewport *viewport, VkRect2D *scissor);
-    static VkPipelineRasterizationStateCreateInfo
+    VkPipelineRasterizationStateCreateInfo
     get_rasterization_state(MonoPl::CreateInfo::RasterInfo *info);
-    static VkPipelineMultisampleStateCreateInfo
+    VkPipelineMultisampleStateCreateInfo
     get_multisample_state(MonoPl::CreateInfo::MultiSampleInfo *info);
-    static VkPipelineDepthStencilStateCreateInfo
+    VkPipelineDepthStencilStateCreateInfo
     get_depth_stencil_state(MonoPl::CreateInfo::DepthStencilInfo *info);
-    static VkPipelineColorBlendStateCreateInfo get_blend_state(
+    VkPipelineColorBlendStateCreateInfo get_blend_state(
         MonoPl::CreateInfo::BlendInfo *info, VkPipelineColorBlendAttachmentState *attachments);
-    static VkPipelineDynamicStateCreateInfo get_dyn_state(MonoPl::CreateInfo::DynInfo *info);
-    static VkPipelineLayout get_layout(MonoPl::CreateInfo::LayoutInfo *info, uint32_t spv_count, Spv *spv);
+    VkPipelineDynamicStateCreateInfo get_dyn_state(MonoPl::CreateInfo::DynInfo *info);
+    VkPipelineLayout get_layout(Spv *spv);
 };
+
+
+// Viewport
+VkViewport get_viewport();
+VkRect2D get_scissor();
+
+// Drawing
+struct DrawInfo;
+void render_loop2();
+void draw2(DrawInfo *info);
 
 struct Engine {
   public:
@@ -416,10 +424,6 @@ struct Engine {
     void get_swapchain_image_views();
     void kill_swapchain_image_views();
     void resize_swapchain();
-
-    // Viewport
-    VkViewport get_viewport();
-    VkRect2D get_scissor();
 
     // Renderpass
     VkRenderPass vk_renderpass;
